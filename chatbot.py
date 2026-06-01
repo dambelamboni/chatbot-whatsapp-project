@@ -1,4 +1,3 @@
-```python
 import os
 from flask import Flask, request, abort
 from flask_sqlalchemy import SQLAlchemy
@@ -224,4 +223,3 @@ def webhook():
 
 if __name__ == "__main__":
     app.run()
-```
