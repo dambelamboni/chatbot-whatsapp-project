@@ -1,40 +1,40 @@
+```python
 import os
 from flask import Flask, request, abort
 from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
 
 # =========================================================
-# APP CONFIG
+# APPLICATION
 # =========================================================
 
 app = Flask(__name__)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
     "sqlite:///murmures_paix.db"
 )
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
 # =========================================================
-# DATABASE MODEL
+# BASE DE DONNÉES
 # =========================================================
 
 class UserSession(db.Model):
+    __tablename__ = "user_sessions"
+
     id = db.Column(db.String(50), primary_key=True)
     step = db.Column(db.String(20), default="menu")
     service = db.Column(db.String(20), nullable=True)
 
-# =========================================================
-# INIT DB
-# =========================================================
 
 with app.app_context():
     db.create_all()
 
 # =========================================================
-# DATA
+# RÉFÉRENTIEL DES PROFESSIONNELS
 # =========================================================
 
 PROFESSIONNELS = {
@@ -70,35 +70,36 @@ PROFESSIONNELS = {
 
 def get_main_menu():
     return (
-        "-*- SÉCURITÉ ET COHÉSION SOCIALE -*-\n\n"
-        "Bienvenue sur Murmures du Quartier.\n\n"
-        "1. Signaler un incident\n"
-        "2. Demander une assistance\n"
-        "3. Demander un conseil\n\n"
-        "Tapez MENU pour recommencer."
+        "🕊️ *MURMURES DU QUARTIER*\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "Bienvenue sur la plateforme de médiation et de cohésion sociale.\n\n"
+        "*Comment pouvons-nous vous aider ?*\n\n"
+        "1️⃣ Signaler un incident ou un conflit\n"
+        "2️⃣ Demander une assistance (Urgence / VBG)\n"
+        "3️⃣ Obtenir un conseil juridique ou social\n\n"
+        "ℹ️ Répondez simplement par *1*, *2* ou *3*.\n\n"
+        "🔄 Tapez *MENU* à tout moment pour revenir à l'accueil."
     )
 
 def get_zone_menu():
     return (
-        "--- UNITÉ DE MÉDIATION ---\n\n"
-        "Choisissez votre zone :\n"
-        "1. Dapaong\n"
-        "2. Tandjouaré\n"
-        "3. Oti\n"
-        "4. Kpendjal"
+        "📍 *UNITÉ DE MÉDIATION*\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "Veuillez sélectionner votre zone :\n\n"
+        "1️⃣ Dapaong\n"
+        "2️⃣ Tandjouaré\n"
+        "3️⃣ Oti\n"
+        "4️⃣ Kpendjal\n\n"
+        "ℹ️ Répondez par le numéro correspondant."
     )
 
-# =========================================================
-# TWILIO RESPONSE
-# =========================================================
-
-def send_reply(text):
+def send_reply(message):
     resp = MessagingResponse()
-    resp.message(text)
+    resp.message(message)
     return str(resp)
 
 # =========================================================
-# WEBHOOK
+# WEBHOOK WHATSAPP
 # =========================================================
 
 @app.route("/webhook", methods=["POST"])
@@ -110,64 +111,117 @@ def webhook():
     if not user_id:
         abort(400)
 
+    # -----------------------------------------------------
+    # Création de session
+    # -----------------------------------------------------
+
     session = UserSession.query.get(user_id)
 
-    # NEW USER
     if not session:
-        session = UserSession(id=user_id)
+        session = UserSession(
+            id=user_id,
+            step="menu"
+        )
+
         db.session.add(session)
         db.session.commit()
+
         return send_reply(get_main_menu())
 
-    # RESET COMMAND
+    # -----------------------------------------------------
+    # Réinitialisation
+    # -----------------------------------------------------
+
     if body in ["menu", "0", "restart", "accueil"]:
         session.step = "menu"
+        session.service = None
+
         db.session.commit()
+
         return send_reply(get_main_menu())
 
-    # =====================================================
-    # STEP 1: MENU
-    # =====================================================
+    # -----------------------------------------------------
+    # MENU PRINCIPAL
+    # -----------------------------------------------------
 
     if session.step == "menu":
-        mapping = {"1": "incident", "2": "aide", "3": "conseil"}
 
-        if body in mapping:
-            session.service = mapping[body]
+        services_map = {
+            "1": "incident",
+            "2": "aide",
+            "3": "conseil"
+        }
+
+        if body in services_map:
+
+            session.service = services_map[body]
             session.step = "zone"
+
             db.session.commit()
+
             return send_reply(get_zone_menu())
 
-        return send_reply("Option invalide.\n\n" + get_main_menu())
+        # UX améliorée :
+        # peu importe le texte envoyé, on réaffiche le menu
+        return send_reply(get_main_menu())
 
-    # =====================================================
-    # STEP 2: ZONE
-    # =====================================================
+    # -----------------------------------------------------
+    # CHOIX DE LA ZONE
+    # -----------------------------------------------------
 
     if session.step == "zone":
 
         if body not in PROFESSIONNELS:
-            return send_reply("Zone invalide.\n\n" + get_zone_menu())
+            return send_reply(
+                "⚠️ Zone non reconnue.\n\n"
+                + get_zone_menu()
+            )
 
-        zone = PROFESSIONNELS[body]
-        pro = zone.get(session.service)
+        zone_data = PROFESSIONNELS[body]
 
-        session.step = "menu"
-        db.session.commit()
+        pro = zone_data.get(session.service)
 
-        return send_reply(
-            f"DOSSIER ENREGISTRÉ\n\n"
-            f"Zone : {zone['label']}\n"
-            f"Médiateur : {pro['nom']}\n"
-            f"Contact : {pro['tel']}"
+        service_labels = {
+            "incident": "Signalement d'incident",
+            "aide": "Demande d'assistance",
+            "conseil": "Conseil juridique ou social"
+        }
+
+        service_nom = service_labels.get(
+            session.service,
+            "Demande"
         )
 
-    # fallback
+        response = (
+            "✅ *DOSSIER ENREGISTRÉ*\n"
+            "━━━━━━━━━━━━━━\n\n"
+            f"📌 *Type :* {service_nom}\n"
+            f"📍 *Zone :* {zone_data['label']}\n\n"
+            f"👤 *Médiateur assigné :* {pro['nom']}\n"
+            f"📞 *Contact :* {pro['tel']}\n\n"
+            "🕊️ Votre demande a été transmise avec succès.\n"
+            "Un ambassadeur de paix local vous contactera prochainement.\n\n"
+            "🔄 Tapez *MENU* pour effectuer une nouvelle demande."
+        )
+
+        session.step = "menu"
+        session.service = None
+
+        db.session.commit()
+
+        return send_reply(response)
+
+    # -----------------------------------------------------
+    # Sécurité
+    # -----------------------------------------------------
+
     return send_reply(get_main_menu())
 
+
 # =========================================================
-# MAIN (RENDER SAFE)
+# LANCEMENT LOCAL
 # =========================================================
 
 if __name__ == "__main__":
     app.run()
+```
