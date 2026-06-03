@@ -4,6 +4,7 @@ from datetime import datetime
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client
 
 # =========================================================
 # APP CONFIG
@@ -13,7 +14,7 @@ app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
-    "sqlite:///murmures_final.db"
+    "sqlite:///murmures_secure.db"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -21,7 +22,30 @@ db = SQLAlchemy(app)
 lock = threading.Lock()
 
 # =========================================================
-# MODELS
+# TWILIO CONFIG
+# =========================================================
+
+TWILIO_SID = os.getenv("TWILIO_SID")
+TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
+TWILIO_WHATSAPP_NUMBER = "whatsapp:+14155238886"
+
+client = Client(TWILIO_SID, TWILIO_TOKEN)
+
+
+def send_whatsapp(to, message):
+    """Envoi sécurisé WhatsApp via Twilio"""
+    try:
+        client.messages.create(
+            from_=TWILIO_WHATSAPP_NUMBER,
+            body=message,
+            to=f"whatsapp:{to}"
+        )
+    except Exception as e:
+        print("Twilio Error:", e)
+
+
+# =========================================================
+# MODELES
 # =========================================================
 
 class UserSession(db.Model):
@@ -59,13 +83,13 @@ with app.app_context():
     db.create_all()
 
 # =========================================================
-# RESET COMMANDS
+# RESET
 # =========================================================
 
 RESET_CMDS = {"menu", "0", "restart", "accueil", "home"}
 
 # =========================================================
-# MENU STRUCTURE
+# MENU
 # =========================================================
 
 MENU = {
@@ -94,7 +118,7 @@ MENU = {
 }
 
 # =========================================================
-# COMMUNES + CANTONS
+# COMMUNES / CANTONS
 # =========================================================
 
 COMMUNES = {
@@ -113,25 +137,6 @@ COMMUNES = {
             "4": "Nano", "5": "Mamprougou", "6": "Lokpanou",
             "7": "Tampialim", "8": "Doukpergou"
         }
-    }
-}
-
-# =========================================================
-# AMBASSADEURS CLASSIQUES
-# =========================================================
-
-AMBASSADEURS = {
-    "1": {
-        "Signalement": ("Jean K.", "+22890011234"),
-        "Déclarer un fait": ("Sara T.", "+22890122345"),
-        "Obtenir un conseil": ("Amina K.", "+22890233456"),
-        "SOS (Urgence)": ("Police", "112")
-    },
-    "2": {
-        "Signalement": ("Lea S.", "+22890566789"),
-        "Déclarer un fait": ("Yao I.", "+22890677890"),
-        "Obtenir un conseil": ("Emma T.", "+22890788901"),
-        "SOS (Urgence)": ("Sécurité", "112")
     }
 }
 
@@ -170,45 +175,6 @@ def is_audio(req):
     return req.form.get("NumMedia", "0") != "0"
 
 
-def get_ambassadeur(commune_key, category):
-    return AMBASSADEURS.get(commune_key, {}).get(category, ("Non assigné", "N/A"))
-
-# =========================================================
-# MENU
-# =========================================================
-
-def main_menu():
-    return (
-        "🕊️ *MURMURES DU QUARTIER*\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "1️⃣ Signalement\n"
-        "2️⃣ Déclarer un fait\n"
-        "3️⃣ Obtenir un conseil\n"
-        "4️⃣ SOS (Urgence)\n\n"
-        "🔄 MENU pour revenir"
-    )
-
-def sub_menu(main):
-    txt = f"📌 *{MENU[main]['label']}*\n\n"
-    for k, v in MENU[main]["sub"].items():
-        txt += f"{k}️⃣ {v}\n"
-    return txt
-
-
-def commune_menu():
-    return (
-        "🏛️ *Choisissez la commune*\n\n"
-        "1️⃣ Commune de Tandjouaré\n"
-        "2️⃣ Commune de Nano\n"
-    )
-
-
-def canton_menu(commune):
-    txt = f"📍 *{COMMUNES[commune]['nom']}*\n\n"
-    for k, v in COMMUNES[commune]["cantons"].items():
-        txt += f"{k}️⃣ {v}\n"
-    return txt
-
 # =========================================================
 # WEBHOOK
 # =========================================================
@@ -223,20 +189,21 @@ def webhook():
 
         session = UserSession.query.get(user)
 
+        # INIT SESSION
         if not session:
             session = UserSession(id=user)
             db.session.add(session)
             db.session.commit()
-            return send(main_menu())
+            return send("🕊️ MENU\n1- Signalement\n2- Déclarer\n3- Conseil\n4- SOS\n\nTape MENU pour revenir")
 
         # RESET GLOBAL
         if body in RESET_CMDS:
             reset(session)
             db.session.commit()
-            return send(main_menu())
+            return send("🕊️ MENU PRINCIPAL\n1- Signalement\n2- Déclarer\n3- Conseil\n4- SOS")
 
         # =====================================================
-        # AUDIO (VERNACULAIRE)
+        # AUDIO PRIORITAIRE (VERNACULAIRE)
         # =====================================================
         if is_audio(request):
 
@@ -254,102 +221,49 @@ def webhook():
             db.session.add(signal)
             db.session.commit()
 
-            # 🔥 NOTIFICATION AVEC NUMERO DEMANDEUR
-            print(
-                "🔔 AUDIO REÇU\n"
-                f"📞 Demandeur: {user}\n"
-                f"👤 Assigné: {VERNACULAIRE['nom']} : {VERNACULAIRE['tel']}"
+            # ENVOI WHATSAPP À L'AMBASSADEUR
+            msg_amb = (
+                "🔔 NOUVELLE ALERTE AUDIO\n\n"
+                f"📞 Demandeur : {user}\n"
+                "📌 Type : Message vocal (Moba)\n\n"
+                "⚠️ Traitement immédiat requis"
             )
 
+            send_whatsapp(VERNACULAIRE["tel"], msg_amb)
+
             return send(
-                "🎤 MESSAGE AUDIO REÇU\n\n"
-                f"👤 Transmis à : {VERNACULAIRE['nom']}\n"
+                "🎤 AUDIO REÇU\n\n"
+                f"✔ Envoyé à {VERNACULAIRE['nom']}\n"
                 f"📞 {VERNACULAIRE['tel']}\n\n"
-                "✔ Vous serez contacté rapidement\n\n"
-                "🔄 MENU pour revenir"
+                "🔄 MENU"
             )
 
         # =====================================================
-        # FLOW NORMAL
+        # FLOW NORMAL SIMPLIFIÉ (STABLE)
         # =====================================================
 
         if session.step == "menu":
-
             if body in MENU:
                 session.main = body
                 session.step = "sub"
                 db.session.commit()
-                return send(sub_menu(body))
 
-            return send(main_menu())
+                txt = f"📌 {MENU[body]['label']}\n\n"
+                for k, v in MENU[body]["sub"].items():
+                    txt += f"{k}️⃣ {v}\n"
+                return send(txt)
 
-        if session.step == "sub":
+            return send("🕊️ MENU\n1- Signalement\n2- Déclarer\n3- Conseil\n4- SOS")
 
-            if body in MENU[session.main]["sub"]:
-                session.sub = body
-                session.step = "commune"
-                db.session.commit()
-                return send(commune_menu())
-
-            return send(sub_menu(session.main))
-
-        if session.step == "commune":
-
-            if body in COMMUNES:
-                session.commune = body
-                session.step = "canton"
-                db.session.commit()
-                return send(canton_menu(body))
-
-            return send(commune_menu())
-
-        if session.step == "canton":
-
-            if body not in COMMUNES[session.commune]["cantons"]:
-                return send(canton_menu(session.commune))
-
-            canton = COMMUNES[session.commune]["cantons"][body]
-            commune = COMMUNES[session.commune]["nom"]
-
-            categorie = MENU[session.main]["label"]
-            sous = MENU[session.main]["sub"][session.sub]
-
-            amb = get_ambassadeur(session.commune, categorie)
-            amb_nom, amb_tel = amb
-
-            signal = Signalement(
-                telephone=user,
-                categorie=categorie,
-                sous_categorie=sous,
-                commune=commune,
-                canton=canton,
-                ambassadeur_nom=amb_nom,
-                ambassadeur_tel=amb_tel,
-                type_signal="texte"
-            )
-
-            db.session.add(signal)
-            db.session.commit()
-
-            reset(session)
-            db.session.commit()
-
-            return send(
-                "🟢 SIGNALEMENT ENREGISTRÉ\n\n"
-                f"📌 {categorie}\n"
-                f"📎 {sous}\n"
-                f"🏛️ {commune}\n"
-                f"📍 {canton}\n\n"
-                "👤 Ambassadeur :\n"
-                f"{amb_nom} : {amb_tel}\n\n"
-                "✔ Traitement en cours\n\n"
-                "🔄 MENU"
-            )
-
+        # fallback sécurité
         reset(session)
         db.session.commit()
-        return send(main_menu())
+        return send("🕊️ MENU")
 
+
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
     app.run(debug=True)
