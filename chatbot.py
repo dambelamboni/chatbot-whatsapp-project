@@ -1,4 +1,5 @@
 import os
+import threading
 from datetime import datetime
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
@@ -12,14 +13,15 @@ app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
-    "sqlite:///murmures_pro.db"
+    "sqlite:///murmures_final.db"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+lock = threading.Lock()
 
 # =========================================================
-# SESSION MODEL
+# MODELS
 # =========================================================
 
 class UserSession(db.Model):
@@ -34,10 +36,6 @@ class UserSession(db.Model):
     commune = db.Column(db.String(10))
     canton = db.Column(db.String(10))
 
-
-# =========================================================
-# SIGNAL MODEL
-# =========================================================
 
 class Signalement(db.Model):
     __tablename__ = "signalements"
@@ -61,20 +59,20 @@ with app.app_context():
     db.create_all()
 
 # =========================================================
-# RESET CONTROL
+# RESET COMMANDS
 # =========================================================
 
 RESET_CMDS = {"menu", "0", "restart", "accueil", "home"}
 
 # =========================================================
-# BUSINESS DATA
+# MENU STRUCTURE
 # =========================================================
 
 MENU = {
     "1": {
         "label": "Signalement",
         "sub": {
-            "1": "Conflits ou violence",
+            "1": "Conflit ou violence",
             "2": "Viol ou VBG",
             "3": "Rumeur du quartier",
             "4": "Personne suspecte"
@@ -85,7 +83,7 @@ MENU = {
         "sub": {
             "1": "Injustice sociale",
             "2": "Vulnérabilité",
-            "3": "Tensions / malentendus"
+            "3": "Tension / malentendu"
         }
     },
     "3": {
@@ -94,7 +92,7 @@ MENU = {
             "1": "Cas VBG",
             "2": "Viol",
             "3": "Litige foncier",
-            "4": "Autres"
+            "4": "Autre"
         }
     },
     "4": {
@@ -107,6 +105,10 @@ MENU = {
     }
 }
 
+# =========================================================
+# COMMUNES + CANTONS (CORRIGÉ COMPLET)
+# =========================================================
+
 COMMUNES = {
     "1": {
         "nom": "Commune de Tandjouaré",
@@ -114,7 +116,11 @@ COMMUNES = {
             "1": "Bogou",
             "2": "Bombouaka",
             "3": "Boulogou",
-            "4": "Pligou"
+            "4": "Pligou",
+            "5": "Tammongue",
+            "6": "Loko",
+            "7": "Nandoga",
+            "8": "Goundoga"
         }
     },
     "2": {
@@ -123,10 +129,18 @@ COMMUNES = {
             "1": "Bagou",
             "2": "Sissiek",
             "3": "Sangou",
-            "4": "Nano"
+            "4": "Nano",
+            "5": "Mamprougou",
+            "6": "Lokpanou",
+            "7": "Tampialim",
+            "8": "Doukpergou"
         }
     }
 }
+
+# =========================================================
+# AMBASSADEURS
+# =========================================================
 
 AMBASSADEURS = {
     "1": {
@@ -165,6 +179,13 @@ def clean(text):
     return text.strip().lower() if text else ""
 
 
+def get_ambassadeur(commune_key, category):
+    return AMBASSADEURS.get(commune_key, {}).get(category, ("Non assigné", "N/A"))
+
+# =========================================================
+# MENUS
+# =========================================================
+
 def main_menu():
     return (
         "🕊️ *MURMURES DU QUARTIER*\n"
@@ -173,13 +194,12 @@ def main_menu():
         "2️⃣ Déclarer un fait\n"
         "3️⃣ Conseil\n"
         "4️⃣ SOS\n\n"
-        "ℹ️ Tapez MENU pour revenir à tout moment"
+        "🔄 MENU pour revenir à tout moment"
     )
 
 
 def sub_menu(main):
-    title = MENU[main]["label"]
-    txt = f"📌 *{title}*\n\n"
+    txt = f"📌 *{MENU[main]['label']}*\n\n"
     for k, v in MENU[main]["sub"].items():
         txt += f"{k}️⃣ {v}\n"
     return txt
@@ -188,23 +208,17 @@ def sub_menu(main):
 def commune_menu():
     return (
         "🏛️ *Choisissez la commune*\n\n"
-        "1️⃣ Tandjouaré\n"
-        "2️⃣ Nano\n"
+        "1️⃣ Commune de Tandjouaré\n"
+        "2️⃣ Commune de Nano\n"
     )
 
 
 def canton_menu(commune):
-    txt = "📍 *Choisissez le canton*\n\n"
+    txt = f"📍 *{COMMUNES[commune]['nom']}*\n\n"
     for k, v in COMMUNES[commune]["cantons"].items():
         txt += f"{k}️⃣ {v}\n"
+    txt += "\n🔄 MENU pour revenir"
     return txt
-
-
-def get_ambassadeur(commune, category):
-    return AMBASSADEURS.get(commune, {}).get(
-        category,
-        ("Non assigné", "N/A")
-    )
 
 # =========================================================
 # WEBHOOK
@@ -213,122 +227,116 @@ def get_ambassadeur(commune, category):
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
-    user = request.form.get("From", "").replace("whatsapp:", "")
-    body = clean(request.form.get("Body", ""))
+    with lock:
 
-    session = UserSession.query.get(user)
+        user = request.form.get("From", "").replace("whatsapp:", "")
+        body = clean(request.form.get("Body", ""))
 
-    if not session:
-        session = UserSession(id=user)
-        db.session.add(session)
-        db.session.commit()
-        return send(main_menu())
+        session = UserSession.query.get(user)
 
-    # RESET GLOBAL
-    if body in RESET_CMDS:
-        reset(session)
-        db.session.commit()
-        return send(main_menu())
-
-    # =====================================================
-    # 1. MENU
-    # =====================================================
-
-    if session.step == "menu":
-
-        if body in MENU:
-            session.main = body
-            session.step = "sub"
+        if not session:
+            session = UserSession(id=user)
+            db.session.add(session)
             db.session.commit()
-            return send(sub_menu(body))
+            return send(main_menu())
 
-        return send(main_menu())
-
-    # =====================================================
-    # 2. SUB MENU
-    # =====================================================
-
-    if session.step == "sub":
-
-        if body in MENU[session.main]["sub"]:
-            session.sub = body
-            session.step = "commune"
+        # RESET GLOBAL
+        if body in RESET_CMDS:
+            reset(session)
             db.session.commit()
+            return send(main_menu())
+
+        # =====================================================
+        # MENU
+        # =====================================================
+        if session.step == "menu":
+
+            if body in MENU:
+                session.main = body
+                session.step = "sub"
+                db.session.commit()
+                return send(sub_menu(body))
+
+            return send(main_menu())
+
+        # =====================================================
+        # SUB MENU
+        # =====================================================
+        if session.step == "sub":
+
+            if body in MENU[session.main]["sub"]:
+                session.sub = body
+                session.step = "commune"
+                db.session.commit()
+                return send(commune_menu())
+
+            return send(sub_menu(session.main))
+
+        # =====================================================
+        # COMMUNE
+        # =====================================================
+        if session.step == "commune":
+
+            if body in COMMUNES:
+                session.commune = body
+                session.step = "canton"
+                db.session.commit()
+                return send(canton_menu(body))
+
             return send(commune_menu())
 
-        return send(sub_menu(session.main))
+        # =====================================================
+        # CANTON + FINAL
+        # =====================================================
+        if session.step == "canton":
 
-    # =====================================================
-    # 3. COMMUNE
-    # =====================================================
+            if body not in COMMUNES[session.commune]["cantons"]:
+                return send(canton_menu(session.commune))
 
-    if session.step == "commune":
+            canton = COMMUNES[session.commune]["cantons"][body]
 
-        if body in COMMUNES:
-            session.commune = body
-            session.step = "canton"
+            category = MENU[session.main]["label"]
+            subcategory = MENU[session.main]["sub"][session.sub]
+
+            amb_name, amb_tel = get_ambassadeur(session.commune, category)
+
+            # SAVE
+            signal = Signalement(
+                telephone=user,
+                categorie=category,
+                sous_categorie=subcategory,
+                commune=COMMUNES[session.commune]["nom"],
+                canton=canton,
+                ambassadeur_nom=amb_name,
+                ambassadeur_tel=amb_tel
+            )
+
+            db.session.add(signal)
             db.session.commit()
-            return send(canton_menu(body))
 
-        return send(commune_menu())
+            # MESSAGE FINAL (AVANT RESET)
+            message = (
+                "🟢 *SIGNALEMENT ENREGISTRÉ*\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+                f"📌 Catégorie : {category}\n"
+                f"📎 Sous-catégorie : {subcategory}\n"
+                f"🏛️ Commune : {COMMUNES[session.commune]['nom']}\n"
+                f"📍 Canton : {canton}\n\n"
+                "👤 Ambassadeur :\n"
+                f"{amb_name} - {amb_tel}\n\n"
+                "✔ Transmission réussie\n\n"
+                "🔄 MENU pour recommencer"
+            )
 
-    # =====================================================
-    # 4. CANTON + FINAL PROCESS
-    # =====================================================
+            reset(session)
+            db.session.commit()
 
-    if session.step == "canton":
+            return send(message)
 
-        if body not in COMMUNES[session.commune]["cantons"]:
-            return send(canton_menu(session.commune))
-
-        canton = COMMUNES[session.commune]["cantons"][body]
-        session.canton = canton
-
-        category = MENU[session.main]["label"]
-        subcategory = MENU[session.main]["sub"][session.sub]
-
-        amb_name, amb_tel = get_ambassadeur(session.commune, category)
-
-        # SAVE
-        signal = Signalement(
-            telephone=user,
-            categorie=category,
-            sous_categorie=subcategory,
-            commune=COMMUNES[session.commune]["nom"],
-            canton=canton,
-            ambassadeur_nom=amb_name,
-            ambassadeur_tel=amb_tel
-        )
-
-        db.session.add(signal)
-        db.session.commit()
-
-        # RESET CLEAN
         reset(session)
         db.session.commit()
+        return send(main_menu())
 
-        # FINAL OUTPUT
-        return send(
-            "🟢 *SIGNALEMENT ENREGISTRÉ AVEC SUCCÈS*\n"
-            "━━━━━━━━━━━━━━━━━━\n\n"
-            f"📌 Catégorie : {category}\n"
-            f"📎 Sous-catégorie : {subcategory}\n"
-            f"🏛️ Commune : {COMMUNES[session.commune]['nom']}\n"
-            f"📍 Canton : {canton}\n\n"
-            "👤 *Ambassadeur assigné :*\n"
-            f"{amb_name} - {amb_tel}\n\n"
-            "✔ Transmission effectuée\n"
-            "🔄 MENU pour recommencer"
-        )
-
-    reset(session)
-    db.session.commit()
-    return send(main_menu())
-
-
-# =========================================================
-# RUN
-# =========================================================
 
 if __name__ == "__main__":
     app.run(debug=True)
