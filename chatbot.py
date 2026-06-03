@@ -11,11 +11,17 @@ app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
-    "sqlite:///murmures_paix.db"
+    "sqlite:///murmures_safe.db"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+
+# =========================================================
+# ANTI DUPLICATION TWILIO
+# =========================================================
+
+LAST_SID = {}
 
 # =========================================================
 # SESSION
@@ -35,7 +41,7 @@ with app.app_context():
     db.create_all()
 
 # =========================================================
-# MENU (TON NOUVEAU MENU)
+# MENU
 # =========================================================
 
 MENU = {
@@ -75,10 +81,6 @@ MENU = {
     }
 }
 
-# =========================================================
-# AMBASSADEURS
-# =========================================================
-
 AMBASSADEURS = {
     "Signalement": {
         "Conflits ou violence": {"nom": "Jean K.", "tel": "+22890011234"},
@@ -104,12 +106,11 @@ AMBASSADEURS = {
     }
 }
 
-# =========================================================
-# HELPERS
-# =========================================================
-
 RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
 
+# =========================================================
+# HELPERS ULTRA SAFE
+# =========================================================
 
 def send(msg):
     resp = MessagingResponse()
@@ -117,10 +118,15 @@ def send(msg):
     return str(resp)
 
 
-def clean(text):
+def normalize(text):
     if not text:
         return ""
     return " ".join(text.lower().strip().split())
+
+
+def is_reset(msg):
+    msg = msg.replace(".", "").replace("!", "").replace(",", "")
+    return msg in RESET_CMDS
 
 
 def reset(session):
@@ -129,8 +135,12 @@ def reset(session):
     session.sub_choice = None
 
 
-def is_reset(body):
-    return body in RESET_CMDS
+def valid_main_choice(x):
+    return x in MENU
+
+
+def valid_sub_choice(main, sub):
+    return main in MENU and sub in MENU[main]["sub"]
 
 
 def get_ambassadeur(main_label, sub_label):
@@ -145,7 +155,7 @@ def get_ambassadeur(main_label, sub_label):
 
 def main_menu():
     return (
-        "🕊️ *MURMURES DU QUARTIER*\n━━━━━━━━━━━━━━\n\n"
+        "━━━━ 🕊️ *MURMURES DU QUARTIER ━━━━\n"
         "1️⃣ Signalement\n"
         "2️⃣ Déclarer un fait\n"
         "3️⃣ Obtenir un conseil\n"
@@ -156,7 +166,6 @@ def main_menu():
 
 def sub_menu(main):
     data = MENU.get(main)
-
     if not data:
         return main_menu()
 
@@ -176,10 +185,26 @@ def sub_menu(main):
 def webhook():
 
     user_id = request.form.get("From", "").replace("whatsapp:", "")
-    body = clean(request.form.get("Body", ""))
+    body_raw = request.form.get("Body", "")
+    body = normalize(body_raw)
+
+    message_sid = request.form.get("MessageSid")
 
     if not user_id:
         return "error", 400
+
+    # =====================================================
+    # ANTI DUPLICATION TWILIO (CRITIQUE)
+    # =====================================================
+
+    if message_sid:
+        if LAST_SID.get(user_id) == message_sid:
+            return send(main_menu())
+        LAST_SID[user_id] = message_sid
+
+    # =====================================================
+    # SESSION
+    # =====================================================
 
     session = UserSession.query.filter_by(id=user_id).first()
 
@@ -190,7 +215,7 @@ def webhook():
         return send(main_menu())
 
     # =====================================================
-    # RESET GLOBAL
+    # RESET GLOBAL (ROBUSTE)
     # =====================================================
 
     if is_reset(body):
@@ -204,7 +229,7 @@ def webhook():
 
     if session.step == "menu":
 
-        if body in MENU:
+        if valid_main_choice(body):
             session.main_choice = body
             session.step = "sub_menu"
             db.session.commit()
@@ -218,56 +243,35 @@ def webhook():
 
     if session.step == "sub_menu":
 
-        main = session.main_choice
-
-        if not main or main not in MENU:
+        if not valid_main_choice(session.main_choice):
             reset(session)
             db.session.commit()
             return send(main_menu())
 
-        if body in MENU[main]["sub"]:
-            session.sub_choice = body
-            session.step = "done"
-            db.session.commit()
+        if valid_sub_choice(session.main_choice, body):
 
-            main_label = MENU[main]["label"]
-            sub_label = MENU[main]["sub"][body]
+            main_label = MENU[session.main_choice]["label"]
+            sub_label = MENU[session.main_choice]["sub"][body]
+
+            amb = get_ambassadeur(main_label, sub_label)
+
+            # RESET AVANT RETURN (évite ghost state)
+            reset(session)
+            db.session.commit()
 
             return send(
                 "🟢 *DEMANDE ENREGISTRÉE*\n"
                 "━━━━━━━━━━━━━━\n\n"
                 f"📌 Catégorie : {main_label}\n"
                 f"📍 Sous-catégorie : {sub_label}\n\n"
+                "👤 *Ambassadeur :*\n"
+                f"{amb['nom']}\n"
+                f"📞 {amb['tel']}\n\n"
                 "🕊️ Merci pour votre signalement.\n\n"
-                "Tapez MENU pour revenir."
+                "MENU pour recommencer."
             )
 
-        return send(sub_menu(main))
-
-    # =====================================================
-    # FINAL + AMBASSADEUR
-    # =====================================================
-
-    if session.step == "done":
-
-        main_label = MENU[session.main_choice]["label"]
-        sub_label = MENU[session.main_choice]["sub"][session.sub_choice]
-
-        amb = get_ambassadeur(main_label, sub_label)
-
-        reset(session)
-        db.session.commit()
-
-        return send(
-            "✅ *SIGNALEMENT FINALISÉ*\n"
-            "━━━━━━━━━━━━━━\n\n"
-            f"📌 Catégorie : {main_label}\n"
-            f"📍 Sous-catégorie : {sub_label}\n\n"
-            f"👤 Ambassadeur : {amb['nom']}\n"
-            f"📞 Contact : {amb['tel']}\n\n"
-            "🕊️ Merci pour votre contribution.\n\n"
-            "MENU pour recommencer."
-        )
+        return send(sub_menu(session.main_choice))
 
     # =====================================================
     # FALLBACK SAFE
