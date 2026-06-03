@@ -28,7 +28,7 @@ lock = threading.Lock()
 
 TWILIO_SID = os.getenv("TWILIO_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
-TWILIO_NUMBER = "whatsapp:+15707261446"
+TWILIO_NUMBER = "whatsapp:+14155238886"
 
 client = Client(TWILIO_SID, TWILIO_TOKEN) if TWILIO_SID and TWILIO_TOKEN else None
 
