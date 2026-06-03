@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
@@ -11,8 +12,9 @@ app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
-    "sqlite:///murmures_full.db"
+    "sqlite:///murmures_communes.db"
 )
+
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
@@ -27,52 +29,44 @@ class UserSession(db.Model):
     id = db.Column(db.String(60), primary_key=True)
     step = db.Column(db.String(30), default="menu")
 
-    commune_choice = db.Column(db.String(10))
-    canton_choice = db.Column(db.String(10))
-    main_choice = db.Column(db.String(10))
-    sub_choice = db.Column(db.String(10))
+    main = db.Column(db.String(10))
+    sub = db.Column(db.String(10))
+    description = db.Column(db.Text)
+
+    commune = db.Column(db.String(10))
+    canton = db.Column(db.String(10))
+
+
+class Signalement(db.Model):
+    __tablename__ = "signalements"
+
+    id = db.Column(db.Integer, primary_key=True)
+    telephone = db.Column(db.String(50))
+
+    categorie = db.Column(db.String(100))
+    sous_categorie = db.Column(db.String(100))
+    description = db.Column(db.Text)
+
+    commune = db.Column(db.String(100))
+    canton = db.Column(db.String(100))
+
+    ambassadeur_nom = db.Column(db.String(100))
+    ambassadeur_tel = db.Column(db.String(50))
+
+    date_creation = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 with app.app_context():
     db.create_all()
 
 # =========================================================
-# RESET COMMANDS
+# RESET
 # =========================================================
 
 RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
 
 # =========================================================
-# STRUCTURE COMMUNES / CANTONS
-# =========================================================
-
-COMMUNES = {
-    "1": "Tandjouaré",
-    "2": "Nano"
-}
-
-CANTONS = {
-    "1": {"commune": "1", "label": "Bogou"},
-    "2": {"commune": "1", "label": "Bombouaka"},
-    "3": {"commune": "1", "label": "Boulogou"},
-    "4": {"commune": "1", "label": "Pligou"},
-    "5": {"commune": "1", "label": "Tammongue"},
-    "6": {"commune": "1", "label": "Loko"},
-    "7": {"commune": "1", "label": "Nandoga"},
-    "8": {"commune": "1", "label": "Goundoga"},
-
-    "9": {"commune": "2", "label": "Bagou"},
-    "10": {"commune": "2", "label": "Sissiek"},
-    "11": {"commune": "2", "label": "Sangou"},
-    "12": {"commune": "2", "label": "Nano"},
-    "13": {"commune": "2", "label": "Mamprougou"},
-    "14": {"commune": "2", "label": "Lokpanou"},
-    "15": {"commune": "2", "label": "Tampialim"},
-    "16": {"commune": "2", "label": "Doukpergou"},
-}
-
-# =========================================================
-# MENU PRINCIPAL
+# MENU
 # =========================================================
 
 MENU = {
@@ -89,8 +83,8 @@ MENU = {
         "label": "Déclarer un fait",
         "sub": {
             "1": "Injustice sociale",
-            "2": "Vulnérabilité communautaire",
-            "3": "Tension ou malentendu"
+            "2": "Vulnérabilités",
+            "3": "Tensions ou malentendus"
         }
     },
     "3": {
@@ -99,28 +93,69 @@ MENU = {
             "1": "Cas de VBG",
             "2": "Viol",
             "3": "Litige foncier",
-            "4": "Autre"
+            "4": "Autres"
         }
     },
     "4": {
-        "label": "SOS Urgence",
+        "label": "SOS",
         "sub": {
             "1": "Braquage",
             "2": "Cambriolage",
-            "3": "Attaque ou agression"
+            "3": "Agression ou attaque terroriste"
         }
     }
 }
 
 # =========================================================
-# AMBASSADEURS
+# COMMUNES / CANTONS
+# =========================================================
+
+COMMUNES = {
+    "1": {
+        "nom": "Commune de Tandjouaré",
+        "cantons": {
+            "1": "Bogou",
+            "2": "Bombouaka",
+            "3": "Boulogou",
+            "4": "Pligou",
+            "5": "Tammongue",
+            "6": "Loko",
+            "7": "Nandoga",
+            "8": "Goundoga"
+        }
+    },
+    "2": {
+        "nom": "Commune de Nano",
+        "cantons": {
+            "1": "Bagou",
+            "2": "Sissiek",
+            "3": "Sangou",
+            "4": "Nano",
+            "5": "Mamprougou",
+            "6": "Lokpanou",
+            "7": "Tampialim",
+            "8": "Doukpergou"
+        }
+    }
+}
+
+# =========================================================
+# AMBASSADEURS PAR COMMUNE (IMPORTANT)
 # =========================================================
 
 AMBASSADEURS = {
-    "Signalement": {"default": {"nom": "Jean K.", "tel": "+22890011234"}},
-    "Déclarer un fait": {"default": {"nom": "Sara T.", "tel": "+22890122345"}},
-    "Obtenir un conseil": {"default": {"nom": "Ali B.", "tel": "+22890233456"}},
-    "SOS Urgence": {"default": {"nom": "Police Urgence", "tel": "112"}},
+    "1": {  # Tandjouaré
+        "Signalement": ("Jean K.", "+22890011234"),
+        "Déclarer un fait": ("Sara T.", "+22890122345"),
+        "Obtenir un conseil": ("Amina K.", "+22890233456"),
+        "SOS": ("Police locale", "112")
+    },
+    "2": {  # Nano
+        "Signalement": ("Lea S.", "+22890566789"),
+        "Déclarer un fait": ("Yao I.", "+22890677890"),
+        "Obtenir un conseil": ("Emma T.", "+22890788901"),
+        "SOS": ("Sécurité nationale", "112")
+    }
 }
 
 # =========================================================
@@ -134,29 +169,30 @@ def send(msg):
 
 
 def clean(text):
-    return " ".join(text.lower().strip().split()) if text else ""
+    return text.strip().lower() if text else ""
 
 
 def reset(session):
     session.step = "menu"
-    session.commune_choice = None
-    session.canton_choice = None
-    session.main_choice = None
-    session.sub_choice = None
+    session.main = None
+    session.sub = None
+    session.description = None
+    session.commune = None
+    session.canton = None
 
 
-def is_reset(msg):
-    return msg in RESET_CMDS
+def is_reset(text):
+    return text in RESET_CMDS
 
 
-def get_ambassadeur(main_label):
-    return AMBASSADEURS.get(main_label, {}).get(
-        "default",
-        {"nom": "Non assigné", "tel": "Non disponible"}
+def get_ambassadeur(commune_key, main_label):
+    return AMBASSADEURS.get(commune_key, {}).get(
+        main_label,
+        ("Non assigné", "N/A")
     )
 
 # =========================================================
-# MENUS TEXTES
+# MENUS
 # =========================================================
 
 def main_menu():
@@ -165,31 +201,30 @@ def main_menu():
         "1️⃣ Signalement\n"
         "2️⃣ Déclarer un fait\n"
         "3️⃣ Obtenir un conseil\n"
-        "4️⃣ SOS Urgence\n\n"
+        "4️⃣ SOS\n\n"
         "🔄 MENU pour revenir."
     )
 
 
 def commune_menu():
     return (
-        "🏘️ *Choisissez la commune*\n━━━━━━━━━━━━━━\n\n"
+        "🏛️ *Choisissez la commune*\n\n"
         "1️⃣ Tandjouaré\n"
         "2️⃣ Nano\n\n"
         "🔄 MENU pour revenir."
     )
 
 
-def canton_menu(commune_id):
-    txt = "📍 *Choisissez le canton*\n━━━━━━━━━━━━━━\n\n"
-    for k, v in CANTONS.items():
-        if v["commune"] == commune_id:
-            txt += f"{k}️⃣ {v['label']}\n"
+def canton_menu(commune):
+    txt = f"📍 {COMMUNES[commune]['nom']}\n\n"
+    for k, v in COMMUNES[commune]["cantons"].items():
+        txt += f"{k}️⃣ {v}\n"
     txt += "\n🔄 MENU pour revenir."
     return txt
 
 
 def sub_menu(main):
-    txt = f"📌 *{MENU[main]['label']}*\n━━━━━━━━━━━━━━\n\n"
+    txt = f"📌 {MENU[main]['label']}\n\n"
     for k, v in MENU[main]["sub"].items():
         txt += f"{k}️⃣ {v}\n"
     txt += "\n🔄 MENU pour revenir."
@@ -205,7 +240,7 @@ def webhook():
     user_id = request.form.get("From", "").replace("whatsapp:", "")
     body = clean(request.form.get("Body", ""))
 
-    session = UserSession.query.filter_by(id=user_id).first()
+    session = UserSession.query.get(user_id)
 
     if not session:
         session = UserSession(id=user_id)
@@ -213,99 +248,112 @@ def webhook():
         db.session.commit()
         return send(main_menu())
 
-    # RESET GLOBAL
+    # RESET
     if is_reset(body):
         reset(session)
         db.session.commit()
         return send(main_menu())
 
     # =====================================================
-    # STEP 1 : MENU
+    # MENU
     # =====================================================
 
     if session.step == "menu":
 
         if body in MENU:
-            session.main_choice = body
-            session.step = "commune"
+            session.main = body
+            session.step = "sub"
             db.session.commit()
-            return send(commune_menu())
+            return send(sub_menu(body))
 
         return send(main_menu())
 
     # =====================================================
-    # STEP 2 : COMMUNE
+    # SUB MENU
     # =====================================================
 
-    if session.step == "commune":
+    if session.step == "sub":
 
-        if body in COMMUNES:
-            session.commune_choice = body
-            session.step = "canton"
+        if body in MENU[session.main]["sub"]:
+            session.sub = body
+            session.step = "description"
             db.session.commit()
-            return send(canton_menu(body))
+            return send("✍️ Décrivez la situation :\n\n🔄 MENU pour annuler.")
+
+        return send(sub_menu(session.main))
+
+    # =====================================================
+    # DESCRIPTION
+    # =====================================================
+
+    if session.step == "description":
+
+        session.description = body
+        session.step = "commune"
+        db.session.commit()
 
         return send(commune_menu())
 
     # =====================================================
-    # STEP 3 : CANTON
+    # COMMUNE
+    # =====================================================
+
+    if session.step == "commune":
+
+        if body not in COMMUNES:
+            return send(commune_menu())
+
+        session.commune = body
+        session.step = "canton"
+        db.session.commit()
+
+        return send(canton_menu(body))
+
+    # =====================================================
+    # CANTON + FINAL
     # =====================================================
 
     if session.step == "canton":
 
-        if body in CANTONS and CANTONS[body]["commune"] == session.commune_choice:
-            session.canton_choice = body
-            session.step = "sub_menu"
-            db.session.commit()
-            return send(sub_menu(session.main_choice))
+        if body not in COMMUNES[session.commune]["cantons"]:
+            return send(canton_menu(session.commune))
 
-        return send(canton_menu(session.commune_choice))
+        session.canton = COMMUNES[session.commune]["cantons"][body]
 
-    # =====================================================
-    # STEP 4 : SOUS MENU + FINAL
-    # =====================================================
+        main_label = MENU[session.main]["label"]
+        sub_label = MENU[session.main]["sub"][session.sub]
 
-    if session.step == "sub_menu":
+        amb_name, amb_tel = get_ambassadeur(session.commune, main_label)
 
-        if body in MENU[session.main_choice]["sub"]:
+        db.session.add(Signalement(
+            telephone=user_id,
+            categorie=main_label,
+            sous_categorie=sub_label,
+            description=session.description,
+            commune=COMMUNES[session.commune]["nom"],
+            canton=session.canton,
+            ambassadeur_nom=amb_name,
+            ambassadeur_tel=amb_tel
+        ))
 
-            main_label = MENU[session.main_choice]["label"]
-            sub_label = MENU[session.main_choice]["sub"][body]
-            canton_label = CANTONS[session.canton_choice]["label"]
-            commune_label = COMMUNES[session.commune_choice]
+        reset(session)
+        db.session.commit()
 
-            amb = get_ambassadeur(main_label)
-
-            reset(session)
-            db.session.commit()
-
-            return send(
-                "🟢 *DEMANDE ENREGISTRÉE*\n━━━━━━━━━━━━━━\n\n"
-                f"🏘️ Commune : {commune_label}\n"
-                f"📍 Canton : {canton_label}\n"
-                f"📌 Catégorie : {main_label}\n"
-                f"📎 Sous-catégorie : {sub_label}\n\n"
-                "👤 *Ambassadeur :*\n"
-                f"{amb['nom']}\n"
-                f"{amb['tel']}\n\n"
-                "🕊️ Merci pour votre signalement.\n\n"
-                "MENU pour recommencer."
-            )
-
-        return send(sub_menu(session.main_choice))
-
-    # =====================================================
-    # FALLBACK SAFE
-    # =====================================================
+        return send(
+            "🟢 *SIGNALEMENT ENREGISTRÉ*\n━━━━━━━━━━━━━━\n\n"
+            f"📌 Catégorie : {main_label}\n"
+            f"📎 Sous-catégorie : {sub_label}\n"
+            f"🏛️ Commune : {COMMUNES[session.commune]['nom']}\n"
+            f"📍 Canton : {session.canton}\n\n"
+            f"👤 Ambassadeur : {amb_name} ({amb_tel})\n\n"
+            "🕊️ Merci pour votre contribution.\n\n"
+            "MENU pour recommencer."
+        )
 
     reset(session)
     db.session.commit()
     return send(main_menu())
 
-
-# =========================================================
-# RUN
-# =========================================================
 
 if __name__ == "__main__":
     app.run(debug=True)
