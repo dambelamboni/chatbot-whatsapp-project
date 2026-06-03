@@ -12,30 +12,32 @@ app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
-    "sqlite:///murmures_final.db"
+    "sqlite:///murmures_pro.db"
 )
-
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
 # =========================================================
-# SESSION
+# SESSION MODEL
 # =========================================================
 
 class UserSession(db.Model):
     __tablename__ = "user_sessions"
 
-    id = db.Column(db.String(60), primary_key=True)
+    id = db.Column(db.String(80), primary_key=True)
     step = db.Column(db.String(30), default="menu")
 
     main = db.Column(db.String(10))
     sub = db.Column(db.String(10))
-    description = db.Column(db.Text)
 
     commune = db.Column(db.String(10))
     canton = db.Column(db.String(10))
 
+
+# =========================================================
+# SIGNAL MODEL
+# =========================================================
 
 class Signalement(db.Model):
     __tablename__ = "signalements"
@@ -43,14 +45,13 @@ class Signalement(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     telephone = db.Column(db.String(50))
 
-    categorie = db.Column(db.String(100))
-    sous_categorie = db.Column(db.String(100))
-    description = db.Column(db.Text)
+    categorie = db.Column(db.String(120))
+    sous_categorie = db.Column(db.String(120))
 
-    commune = db.Column(db.String(100))
-    canton = db.Column(db.String(100))
+    commune = db.Column(db.String(120))
+    canton = db.Column(db.String(120))
 
-    ambassadeur_nom = db.Column(db.String(100))
+    ambassadeur_nom = db.Column(db.String(120))
     ambassadeur_tel = db.Column(db.String(50))
 
     date_creation = db.Column(db.DateTime, default=datetime.utcnow)
@@ -60,13 +61,13 @@ with app.app_context():
     db.create_all()
 
 # =========================================================
-# RESET
+# RESET CONTROL
 # =========================================================
 
-RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
+RESET_CMDS = {"menu", "0", "restart", "accueil", "home"}
 
 # =========================================================
-# MENU PRINCIPAL (HIÉRARCHIE EXACTE)
+# BUSINESS DATA
 # =========================================================
 
 MENU = {
@@ -76,21 +77,21 @@ MENU = {
             "1": "Conflits ou violence",
             "2": "Viol ou VBG",
             "3": "Rumeur du quartier",
-            "4": "Groupe ou personne suspecte"
+            "4": "Personne suspecte"
         }
     },
     "2": {
         "label": "Déclarer un fait",
         "sub": {
             "1": "Injustice sociale",
-            "2": "Vulnérabilités",
-            "3": "Tensions ou malentendus"
+            "2": "Vulnérabilité",
+            "3": "Tensions / malentendus"
         }
     },
     "3": {
-        "label": "Obtenir un conseil",
+        "label": "Conseil",
         "sub": {
-            "1": "Cas de VBG",
+            "1": "Cas VBG",
             "2": "Viol",
             "3": "Litige foncier",
             "4": "Autres"
@@ -101,14 +102,10 @@ MENU = {
         "sub": {
             "1": "Braquage",
             "2": "Cambriolage",
-            "3": "Agression ou attaque terroriste"
+            "3": "Agression"
         }
     }
 }
-
-# =========================================================
-# COMMUNES / CANTONS
-# =========================================================
 
 COMMUNES = {
     "1": {
@@ -117,11 +114,7 @@ COMMUNES = {
             "1": "Bogou",
             "2": "Bombouaka",
             "3": "Boulogou",
-            "4": "Pligou",
-            "5": "Tammongue",
-            "6": "Loko",
-            "7": "Nandoga",
-            "8": "Goundoga"
+            "4": "Pligou"
         }
     },
     "2": {
@@ -130,31 +123,23 @@ COMMUNES = {
             "1": "Bagou",
             "2": "Sissiek",
             "3": "Sangou",
-            "4": "Nano",
-            "5": "Mamprougou",
-            "6": "Lokpanou",
-            "7": "Tampialim",
-            "8": "Doukpergou"
+            "4": "Nano"
         }
     }
 }
 
-# =========================================================
-# AMBASSADEURS PAR COMMUNE + CATÉGORIE
-# =========================================================
-
 AMBASSADEURS = {
-    "1": {  # Tandjouaré
+    "1": {
         "Signalement": ("Jean K.", "+22890011234"),
         "Déclarer un fait": ("Sara T.", "+22890122345"),
-        "Obtenir un conseil": ("Amina K.", "+22890233456"),
-        "SOS": ("Police locale", "112")
+        "Conseil": ("Amina K.", "+22890233456"),
+        "SOS": ("Police nationale", "112")
     },
-    "2": {  # Nano
+    "2": {
         "Signalement": ("Lea S.", "+22890566789"),
         "Déclarer un fait": ("Yao I.", "+22890677890"),
-        "Obtenir un conseil": ("Emma T.", "+22890788901"),
-        "SOS": ("Sécurité nationale", "112")
+        "Conseil": ("Emma T.", "+22890788901"),
+        "SOS": ("Sécurité", "112")
     }
 }
 
@@ -168,62 +153,56 @@ def send(msg):
     return str(resp)
 
 
-def clean(text):
-    return text.strip().lower() if text else ""
-
-
 def reset(session):
     session.step = "menu"
     session.main = None
     session.sub = None
-    session.description = None
     session.commune = None
     session.canton = None
 
 
-def is_reset(text):
-    return text in RESET_CMDS
+def clean(text):
+    return text.strip().lower() if text else ""
 
 
 def main_menu():
     return (
-        "🕊️ *MURMURES DU QUARTIER*\n━━━━━━━━━━━━━━\n\n"
+        "🕊️ *MURMURES DU QUARTIER*\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
         "1️⃣ Signalement\n"
         "2️⃣ Déclarer un fait\n"
-        "3️⃣ Obtenir un conseil\n"
+        "3️⃣ Conseil\n"
         "4️⃣ SOS\n\n"
-        "🔄 MENU pour revenir."
+        "ℹ️ Tapez MENU pour revenir à tout moment"
     )
 
 
 def sub_menu(main):
-    txt = f"📌 {MENU[main]['label']}\n\n"
+    title = MENU[main]["label"]
+    txt = f"📌 *{title}*\n\n"
     for k, v in MENU[main]["sub"].items():
         txt += f"{k}️⃣ {v}\n"
-    txt += "\n🔄 MENU pour revenir."
     return txt
 
 
 def commune_menu():
     return (
-        "🏛️ Choisissez la commune :\n\n"
+        "🏛️ *Choisissez la commune*\n\n"
         "1️⃣ Tandjouaré\n"
-        "2️⃣ Nano\n\n"
-        "🔄 MENU pour revenir."
+        "2️⃣ Nano\n"
     )
 
 
 def canton_menu(commune):
-    txt = f"📍 {COMMUNES[commune]['nom']}\n\n"
+    txt = "📍 *Choisissez le canton*\n\n"
     for k, v in COMMUNES[commune]["cantons"].items():
         txt += f"{k}️⃣ {v}\n"
-    txt += "\n🔄 MENU pour revenir."
     return txt
 
 
-def get_ambassadeur(commune, main_label):
+def get_ambassadeur(commune, category):
     return AMBASSADEURS.get(commune, {}).get(
-        main_label,
+        category,
         ("Non assigné", "N/A")
     )
 
@@ -234,25 +213,25 @@ def get_ambassadeur(commune, main_label):
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
-    user_id = request.form.get("From", "").replace("whatsapp:", "")
+    user = request.form.get("From", "").replace("whatsapp:", "")
     body = clean(request.form.get("Body", ""))
 
-    session = UserSession.query.get(user_id)
+    session = UserSession.query.get(user)
 
     if not session:
-        session = UserSession(id=user_id)
+        session = UserSession(id=user)
         db.session.add(session)
         db.session.commit()
         return send(main_menu())
 
     # RESET GLOBAL
-    if is_reset(body):
+    if body in RESET_CMDS:
         reset(session)
         db.session.commit()
         return send(main_menu())
 
     # =====================================================
-    # MENU
+    # 1. MENU
     # =====================================================
 
     if session.step == "menu":
@@ -266,48 +245,35 @@ def webhook():
         return send(main_menu())
 
     # =====================================================
-    # SUB MENU
+    # 2. SUB MENU
     # =====================================================
 
     if session.step == "sub":
 
         if body in MENU[session.main]["sub"]:
             session.sub = body
-            session.step = "description"
+            session.step = "commune"
             db.session.commit()
-            return send("✍️ Décrivez la situation :\n\n🔄 MENU pour annuler.")
+            return send(commune_menu())
 
         return send(sub_menu(session.main))
 
     # =====================================================
-    # DESCRIPTION
-    # =====================================================
-
-    if session.step == "description":
-
-        session.description = body
-        session.step = "commune"
-        db.session.commit()
-
-        return send(commune_menu())
-
-    # =====================================================
-    # COMMUNE
+    # 3. COMMUNE
     # =====================================================
 
     if session.step == "commune":
 
-        if body not in COMMUNES:
-            return send(commune_menu())
+        if body in COMMUNES:
+            session.commune = body
+            session.step = "canton"
+            db.session.commit()
+            return send(canton_menu(body))
 
-        session.commune = body
-        session.step = "canton"
-        db.session.commit()
-
-        return send(canton_menu(body))
+        return send(commune_menu())
 
     # =====================================================
-    # CANTON + FINAL PROCESS
+    # 4. CANTON + FINAL PROCESS
     # =====================================================
 
     if session.step == "canton":
@@ -315,56 +281,54 @@ def webhook():
         if body not in COMMUNES[session.commune]["cantons"]:
             return send(canton_menu(session.commune))
 
-        canton_name = COMMUNES[session.commune]["cantons"][body]
-        session.canton = canton_name
+        canton = COMMUNES[session.commune]["cantons"][body]
+        session.canton = canton
 
-        main_label = MENU[session.main]["label"]
-        sub_label = MENU[session.main]["sub"][session.sub]
+        category = MENU[session.main]["label"]
+        subcategory = MENU[session.main]["sub"][session.sub]
 
-        amb_name, amb_tel = get_ambassadeur(session.commune, main_label)
+        amb_name, amb_tel = get_ambassadeur(session.commune, category)
 
-        signalement = Signalement(
-            telephone=user_id,
-            categorie=main_label,
-            sous_categorie=sub_label,
-            description=session.description,
+        # SAVE
+        signal = Signalement(
+            telephone=user,
+            categorie=category,
+            sous_categorie=subcategory,
             commune=COMMUNES[session.commune]["nom"],
-            canton=canton_name,
+            canton=canton,
             ambassadeur_nom=amb_name,
             ambassadeur_tel=amb_tel
         )
 
-        try:
-            db.session.add(signalement)
-            db.session.commit()
+        db.session.add(signal)
+        db.session.commit()
 
-        except Exception:
-            db.session.rollback()
-            reset(session)
-            db.session.commit()
-            return send("❌ Erreur serveur. Réessayez ou tapez MENU.")
-
-        # RESET PROPRE
+        # RESET CLEAN
         reset(session)
         db.session.commit()
 
-        # AFFICHAGE FINAL
+        # FINAL OUTPUT
         return send(
-            "🟢 *DEMANDE ENREGISTRÉE*\n━━━━━━━━━━━━━━\n\n"
-            f"📌 Catégorie : {main_label}\n"
-            f"📎 Sous-catégorie : {sub_label}\n"
+            "🟢 *SIGNALEMENT ENREGISTRÉ AVEC SUCCÈS*\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            f"📌 Catégorie : {category}\n"
+            f"📎 Sous-catégorie : {subcategory}\n"
             f"🏛️ Commune : {COMMUNES[session.commune]['nom']}\n"
-            f"📍 Canton : {canton_name}\n\n"
-            "👤 Ambassadeur :\n"
+            f"📍 Canton : {canton}\n\n"
+            "👤 *Ambassadeur assigné :*\n"
             f"{amb_name} - {amb_tel}\n\n"
-            "✅ Traitement en cours.\n\n"
-            "🔄 MENU pour recommencer."
+            "✔ Transmission effectuée\n"
+            "🔄 MENU pour recommencer"
         )
 
     reset(session)
     db.session.commit()
     return send(main_menu())
 
+
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
     app.run(debug=True)
