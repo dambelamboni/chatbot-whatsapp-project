@@ -5,7 +5,7 @@ from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
 
 # =========================================================
-# APP
+# APP CONFIG
 # =========================================================
 
 app = Flask(__name__)
@@ -126,8 +126,19 @@ def send_reply(msg):
     return str(resp)
 
 
-def normalize_user_id(uid):
-    return uid.replace("whatsapp:", "").strip() if uid else None
+# 🔥 NORMALISATION ULTRA ROBUSTE
+def normalize(text):
+    if not text:
+        return ""
+    return " ".join(text.lower().strip().split())
+
+
+# 🔥 RESET ROBUSTE (FIX FINAL TON BUG)
+RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
+
+def is_reset(body):
+    clean = body.replace(".", "").replace("!", "").replace(",", "")
+    return clean in RESET_CMDS
 
 
 def reset_session(session):
@@ -140,12 +151,6 @@ def reset_session(session):
 
 def is_valid_number(value, keys):
     return value.isdigit() and value in keys
-
-
-RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
-
-def is_reset(body):
-    return body in RESET_CMDS
 
 
 def get_ambassadeur(commune, categorie):
@@ -186,24 +191,22 @@ def get_canton_menu(commune):
     return text
 
 # =========================================================
-# WEBHOOK (STABLE FLOW FIXED)
+# WEBHOOK
 # =========================================================
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
     try:
-        # ---------------- INPUT SAFE ----------------
         user_id_raw = request.form.get("From")
-        user_id = normalize_user_id(user_id_raw)
+        user_id = user_id_raw.replace("whatsapp:", "").strip()
 
         body_raw = request.form.get("Body", "")
-        body = body_raw.strip().lower()
+        body = normalize(body_raw)
 
         if not user_id:
             return "Missing user", 400
 
-        # ---------------- SESSION SAFE ----------------
         session = UserSession.query.filter_by(id=user_id).first()
 
         if not session:
@@ -213,19 +216,10 @@ def webhook():
             return send_reply(get_main_menu())
 
         # =====================================================
-        # RESET GLOBAL (PRIORITE MAX)
+        # RESET GLOBAL (FIX DEFINITIF)
         # =====================================================
 
         if is_reset(body):
-            reset_session(session)
-            db.session.commit()
-            return send_reply(get_main_menu())
-
-        # =====================================================
-        # SAFETY GUARD (ANTI GHOST STEP BUG)
-        # =====================================================
-
-        if session.step not in ["menu", "description", "commune", "canton"]:
             reset_session(session)
             db.session.commit()
             return send_reply(get_main_menu())
@@ -237,7 +231,6 @@ def webhook():
         if session.step == "menu":
 
             if is_valid_number(body, CATEGORIES.keys()):
-
                 session.categorie = CATEGORIES[body]
                 session.step = "description"
                 db.session.commit()
@@ -257,11 +250,7 @@ def webhook():
         if session.step == "description":
 
             if len(body_raw.strip()) < 3:
-                return send_reply(
-                    "⚠️ Description trop courte.\n"
-                    "Merci de détailler.\n\n"
-                    "🔄 MENU pour annuler."
-                )
+                return send_reply("⚠️ Description trop courte.\n🔄 MENU pour annuler.")
 
             session.description = body_raw.strip()
             session.step = "commune"
@@ -285,7 +274,7 @@ def webhook():
             return send_reply(get_canton_menu(body))
 
         # =====================================================
-        # CANTON + SAVE (FINAL FIXED)
+        # CANTON + SAVE
         # =====================================================
 
         if session.step == "canton":
@@ -339,10 +328,7 @@ def webhook():
 
     except Exception as e:
         print("ERROR:", e)
-        return send_reply(
-            "⚠️ Erreur technique.\n"
-            "Tapez MENU pour recommencer."
-        )
+        return send_reply("⚠️ Erreur. Tapez MENU pour recommencer.")
 
 
 # =========================================================
