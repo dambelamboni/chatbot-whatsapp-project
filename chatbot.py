@@ -5,7 +5,7 @@ from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
 
 # =========================================================
-# APP CONFIG
+# APP
 # =========================================================
 
 app = Flask(__name__)
@@ -26,7 +26,7 @@ db = SQLAlchemy(app)
 class UserSession(db.Model):
     __tablename__ = "user_sessions"
 
-    id = db.Column(db.String(50), primary_key=True)
+    id = db.Column(db.String(60), primary_key=True)
     step = db.Column(db.String(30), default="menu")
 
     categorie = db.Column(db.String(100))
@@ -117,13 +117,17 @@ AMBASSADEURS = {
 }
 
 # =========================================================
-# HELPERS (SECURITE + STABILITE)
+# HELPERS
 # =========================================================
 
 def send_reply(msg):
     resp = MessagingResponse()
     resp.message(msg)
     return str(resp)
+
+
+def normalize_user_id(uid):
+    return uid.replace("whatsapp:", "").strip() if uid else None
 
 
 def reset_session(session):
@@ -134,12 +138,14 @@ def reset_session(session):
     session.canton = None
 
 
-def normalize(text):
-    return text.strip().lower() if text else ""
-
-
 def is_valid_number(value, keys):
     return value.isdigit() and value in keys
+
+
+RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
+
+def is_reset(body):
+    return body in RESET_CMDS
 
 
 def get_ambassadeur(commune, categorie):
@@ -147,12 +153,6 @@ def get_ambassadeur(commune, categorie):
         categorie,
         {"nom": "Non assigné", "tel": "Non disponible"}
     )
-
-
-RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
-
-def is_reset(body):
-    return body in RESET_CMDS
 
 # =========================================================
 # MENUS
@@ -186,34 +186,34 @@ def get_canton_menu(commune):
     return text
 
 # =========================================================
-# WEBHOOK (CORE STABLE + SAFE)
+# WEBHOOK (STABLE FLOW FIXED)
 # =========================================================
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
     try:
-        user_id = request.form.get("From")
+        # ---------------- INPUT SAFE ----------------
+        user_id_raw = request.form.get("From")
+        user_id = normalize_user_id(user_id_raw)
+
         body_raw = request.form.get("Body", "")
-        body = normalize(body_raw)
+        body = body_raw.strip().lower()
 
         if not user_id:
             return "Missing user", 400
 
-        session = UserSession.query.get(user_id)
-
-        # =====================================================
-        # INIT SESSION
-        # =====================================================
+        # ---------------- SESSION SAFE ----------------
+        session = UserSession.query.filter_by(id=user_id).first()
 
         if not session:
-            session = UserSession(id=user_id)
+            session = UserSession(id=user_id, step="menu")
             db.session.add(session)
             db.session.commit()
             return send_reply(get_main_menu())
 
         # =====================================================
-        # RESET GLOBAL (ULTRA PRIORITAIRE)
+        # RESET GLOBAL (PRIORITE MAX)
         # =====================================================
 
         if is_reset(body):
@@ -222,12 +222,22 @@ def webhook():
             return send_reply(get_main_menu())
 
         # =====================================================
-        # MENU PRINCIPAL
+        # SAFETY GUARD (ANTI GHOST STEP BUG)
+        # =====================================================
+
+        if session.step not in ["menu", "description", "commune", "canton"]:
+            reset_session(session)
+            db.session.commit()
+            return send_reply(get_main_menu())
+
+        # =====================================================
+        # MENU
         # =====================================================
 
         if session.step == "menu":
 
             if is_valid_number(body, CATEGORIES.keys()):
+
                 session.categorie = CATEGORIES[body]
                 session.step = "description"
                 db.session.commit()
@@ -241,7 +251,7 @@ def webhook():
             return send_reply(get_main_menu())
 
         # =====================================================
-        # DESCRIPTION (VALIDATION FORTE)
+        # DESCRIPTION
         # =====================================================
 
         if session.step == "description":
@@ -275,7 +285,7 @@ def webhook():
             return send_reply(get_canton_menu(body))
 
         # =====================================================
-        # CANTON + SAVE (SAFE FINAL)
+        # CANTON + SAVE (FINAL FIXED)
         # =====================================================
 
         if session.step == "canton":
@@ -285,17 +295,15 @@ def webhook():
                 None
             )
 
-            if not commune_key or not is_valid_number(
-                body,
-                COMMUNES[commune_key]["cantons"].keys()
-            ):
+            if not commune_key:
+                reset_session(session)
+                db.session.commit()
+                return send_reply(get_main_menu())
+
+            if not is_valid_number(body, COMMUNES[commune_key]["cantons"].keys()):
                 return send_reply(get_canton_menu(commune_key))
 
             session.canton = COMMUNES[commune_key]["cantons"][body]
-
-            # =================================================
-            # SAVE SAFE
-            # =================================================
 
             amb = get_ambassadeur(session.commune, session.categorie)
 
@@ -335,6 +343,7 @@ def webhook():
             "⚠️ Erreur technique.\n"
             "Tapez MENU pour recommencer."
         )
+
 
 # =========================================================
 # RUN
