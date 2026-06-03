@@ -4,7 +4,7 @@ from datetime import datetime
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
-from twilio.rest import Client  # Import du client Twilio pour envoyer le SMS
+from twilio.rest import Client  # Import du client Twilio pour envoyer la notification
 
 # =========================================================
 # APP CONFIG
@@ -21,11 +21,11 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 lock = threading.Lock()
 
-# Initialisation du client Twilio pour l'envoi du SMS de notification
+# Initialisation du client Twilio pour l'envoi de messages sortants (Notification)
 TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-# Votre numéro Twilio SMS classique (ex: '+14155238886' - SANS le préfixe 'whatsapp:')
-TWILIO_FROM_SMS = os.getenv("TWILIO_SMS_NUMBER", "+14155238886") 
+# Votre numéro Twilio WhatsApp (ex: 'whatsapp:+14155238886')
+TWILIO_FROM = os.getenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886") 
 twilio_client = Client(TWILIO_SID, TWILIO_TOKEN) if TWILIO_SID and TWILIO_TOKEN else None
 
 # Infos de l'ambassadeur de la langue vernaculaire
@@ -77,7 +77,7 @@ with app.app_context():
 RESET_CMDS = {"menu", "0", "restart", "accueil", "home"}
 
 # =========================================================
-# MENU STRUCTURE
+# MENU STRUCTURE (MIS À JOUR)
 # =========================================================
 
 MENU = {
@@ -252,23 +252,25 @@ def webhook():
         if is_audio:
             media_url = request.form.get("MediaUrl0", "Aucun lien")
             
-            # 1. Envoi de la notification par SMS SIMPLE à l'ambassadeur
+            # 1. Envoi de la notification à l'ambassadeur de la langue vernaculaire
             if twilio_client:
                 try:
                     twilio_client.messages.create(
-                        from_=TWILIO_FROM_SMS, # Numéro SMS classique Twilio
-                        to=AMBASSADEUR_VERNACULAIRE_TEL, # Numéro direct de Tikita (sans préfixe whatsapp:)
+                        from_=TWILIO_FROM,
+                        to=f"whatsapp:{AMBASSADEUR_VERNACULAIRE_TEL}",
                         body=(
-                            "[MURMURES] AUDIO REÇU\n"
-                            f"De: +{user}\n"
-                            f"Lien audio: {media_url}\n"
-                            "Veuillez recontacter cet utilisateur."
+                            "🎙️ *NOUVEL AUDIO REÇU (Langue Vernaculaire)*\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"👤 De : +{user}\n"
+                            f"📅 Date : {datetime.utcnow().strftime('%d/%m/%Y %H:%M')}\n"
+                            f"🔗 Lien de l'audio : {media_url}\n\n"
+                            "Veuillez recontacter cet utilisateur pour prendre en charge sa demande."
                         )
                     )
                 except Exception as e:
-                    print(f"Erreur lors de l'envoi du SMS de notification: {e}")
+                    print(f"Erreur lors de l'envoi de la notification Twilio: {e}")
 
-            # 2. Sauvegarde du signalement "Audio" en Base de Données
+            # 2. Sauvegarde d'un signalement générique "Audio" dans la base de données
             signal = Signalement(
                 telephone=user,
                 categorie="Audio / Langue Vernaculaire",
@@ -280,13 +282,13 @@ def webhook():
             )
             db.session.add(signal)
             
-            # Réinitialisation de la session utilisateur si elle existait
+            # Si l'utilisateur avait une session en cours, on la réinitialise de manière sécurisée
             session = UserSession.query.get(user)
             if session:
                 reset(session)
             db.session.commit()
 
-            # 3. Message de confirmation renvoyé à l'utilisateur sur WhatsApp
+            # 3. Réponse à l'utilisateur
             message_user = (
                 "🎙️ *MESSAGE AUDIO REÇU*\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
