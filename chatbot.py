@@ -164,7 +164,7 @@ def get_ambassadeur(commune, categorie):
 # =========================================================
 
 def get_main_menu():
-    text = "🕊️ *MURMURES DU QUARTIER*\n━━━━━━━━━━━━━━\n\n"
+    text = "\n━━━━━━━━━ 🕊️ MURMURES DU QUARTIER ━━━━━━━━━\n"
     for k, v in CATEGORIES.items():
         text += f"{k}️⃣ {v}\n"
     text += "\n🔄 MENU pour revenir à tout moment."
