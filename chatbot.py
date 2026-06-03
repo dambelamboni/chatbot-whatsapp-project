@@ -188,7 +188,8 @@ def get_ambassadeur(commune_key, category):
 
 def main_menu():
     return (
-        "\n━━━━ 🕊️ *MURMURES DU QUARTIER ━━━━\n"       
+        "🕊️ *MURMURES DU QUARTIER*\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"    
         "1️⃣ Signalement\n"
         "2️⃣ Déclarer un fait\n"
         "3️⃣ Obtenir un conseil\n"
