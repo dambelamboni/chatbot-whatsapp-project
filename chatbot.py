@@ -1,6 +1,7 @@
 import os
 import threading
 from datetime import datetime
+
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
@@ -27,25 +28,22 @@ lock = threading.Lock()
 
 TWILIO_SID = os.getenv("TWILIO_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
-TWILIO_WHATSAPP_NUMBER = "whatsapp:+14155238886"
 
-client = Client(TWILIO_SID, TWILIO_TOKEN)
+client = Client(TWILIO_SID, TWILIO_TOKEN) if TWILIO_SID and TWILIO_TOKEN else None
 
-
-def send_whatsapp(to, message):
-    """Envoi sécurisé WhatsApp via Twilio"""
-    try:
-        client.messages.create(
-            from_=TWILIO_WHATSAPP_NUMBER,
-            body=message,
-            to=f"whatsapp:{to}"
-        )
-    except Exception as e:
-        print("Twilio Error:", e)
-
+TWILIO_NUMBER = "whatsapp:+14155238886"
 
 # =========================================================
-# MODELES
+# AMBASSADEUR AUDIO (VERNACULAIRE)
+# =========================================================
+
+VERNACULAIRE = {
+    "nom": "Banganaré Tikita",
+    "tel": "+22892391868"
+}
+
+# =========================================================
+# MODELS
 # =========================================================
 
 class UserSession(db.Model):
@@ -93,28 +91,40 @@ RESET_CMDS = {"menu", "0", "restart", "accueil", "home"}
 # =========================================================
 
 MENU = {
-    "1": {"label": "Signalement", "sub": {
-        "1": "Conflits ou violence",
-        "2": "Viol ou VBG",
-        "3": "Rumeur du quartier",
-        "4": "Groupe suspect ou personne suspecte"
-    }},
-    "2": {"label": "Déclarer un fait", "sub": {
-        "1": "Injustice sociale",
-        "2": "Vulnérabilités",
-        "3": "Tensions naissantes"
-    }},
-    "3": {"label": "Obtenir un conseil", "sub": {
-        "1": "Cas VBG",
-        "2": "Viol",
-        "3": "Litige foncier",
-        "4": "Autres"
-    }},
-    "4": {"label": "SOS (Urgence)", "sub": {
-        "1": "Braquage",
-        "2": "Cambriolage",
-        "3": "Agression ou attaque terroriste"
-    }}
+    "1": {
+        "label": "Signalement",
+        "sub": {
+            "1": "Conflits ou violence",
+            "2": "Viol ou VBG",
+            "3": "Rumeur du quartier",
+            "4": "Groupe suspect ou personne suspecte"
+        }
+    },
+    "2": {
+        "label": "Déclarer un fait",
+        "sub": {
+            "1": "Injustice sociale",
+            "2": "Vulnérabilités",
+            "3": "Tensions naissantes ou malentendus"
+        }
+    },
+    "3": {
+        "label": "Obtenir un conseil",
+        "sub": {
+            "1": "Cas VBG",
+            "2": "Viol",
+            "3": "Litige foncier",
+            "4": "Autres"
+        }
+    },
+    "4": {
+        "label": "SOS (Urgence)",
+        "sub": {
+            "1": "Braquage",
+            "2": "Cambriolage",
+            "3": "Agression ou attaque terroriste"
+        }
+    }
 }
 
 # =========================================================
@@ -125,28 +135,29 @@ COMMUNES = {
     "1": {
         "nom": "Commune de Tandjouaré",
         "cantons": {
-            "1": "Bogou", "2": "Bombouaka", "3": "Boulogou",
-            "4": "Pligou", "5": "Tammongue", "6": "Loko",
-            "7": "Nandoga", "8": "Goundoga"
+            "1": "Bogou",
+            "2": "Bombouaka",
+            "3": "Boulogou",
+            "4": "Pligou",
+            "5": "Tammongue",
+            "6": "Loko",
+            "7": "Nandoga",
+            "8": "Goundoga"
         }
     },
     "2": {
         "nom": "Commune de Nano",
         "cantons": {
-            "1": "Bagou", "2": "Sissiek", "3": "Sangou",
-            "4": "Nano", "5": "Mamprougou", "6": "Lokpanou",
-            "7": "Tampialim", "8": "Doukpergou"
+            "1": "Bagou",
+            "2": "Sissiek",
+            "3": "Sangou",
+            "4": "Nano",
+            "5": "Mamprougou",
+            "6": "Lokpanou",
+            "7": "Tampialim",
+            "8": "Doukpergou"
         }
     }
-}
-
-# =========================================================
-# AMBASSADEUR VERNACULAIRE (AUDIO)
-# =========================================================
-
-VERNACULAIRE = {
-    "nom": "Banganaré Tikita",
-    "tel": "+33780261877"
 }
 
 # =========================================================
@@ -172,8 +183,65 @@ def clean(text):
 
 
 def is_audio(req):
-    return req.form.get("NumMedia", "0") != "0"
+    return int(req.form.get("NumMedia", 0)) > 0
 
+
+def notify_vernaculaire(user_phone):
+    if not client:
+        return
+
+    try:
+        client.messages.create(
+            from_=TWILIO_NUMBER,
+            to=f"whatsapp:{VERNACULAIRE['tel']}",
+            body=f"🎤 AUDIO REÇU\n📞 Demandeur: {user_phone}"
+        )
+    except Exception as e:
+        print("Twilio error:", e)
+
+
+def get_ambassadeur(commune_key, category):
+    return {
+        "1": ("Jean K.", "+22890011234"),
+        "2": ("Sara T.", "+22890122345")
+    }.get(commune_key, ("Non assigné", "N/A"))
+
+# =========================================================
+# MENUS
+# =========================================================
+
+def main_menu():
+    return (
+        "🕊️ *MURMURES DU QUARTIER*\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣ Signalement\n"
+        "2️⃣ Déclarer un fait\n"
+        "3️⃣ Obtenir un conseil\n"
+        "4️⃣ SOS (Urgence)\n\n"
+        "🔄 MENU pour revenir"
+    )
+
+
+def sub_menu(main):
+    txt = f"📌 *{MENU[main]['label']}*\n\n"
+    for k, v in MENU[main]["sub"].items():
+        txt += f"{k}️⃣ {v}\n"
+    return txt
+
+
+def commune_menu():
+    return (
+        "🏛️ *Choisissez la commune*\n\n"
+        "1️⃣ Tandjouaré\n"
+        "2️⃣ Nano\n"
+    )
+
+
+def canton_menu(commune):
+    txt = f"📍 *{COMMUNES[commune]['nom']}*\n\n"
+    for k, v in COMMUNES[commune]["cantons"].items():
+        txt += f"{k}️⃣ {v}\n"
+    return txt
 
 # =========================================================
 # WEBHOOK
@@ -189,27 +257,26 @@ def webhook():
 
         session = UserSession.query.get(user)
 
-        # INIT SESSION
         if not session:
             session = UserSession(id=user)
             db.session.add(session)
             db.session.commit()
-            return send("🕊️ MENU\n1- Signalement\n2- Déclarer\n3- Conseil\n4- SOS\n\nTape MENU pour revenir")
+            return send(main_menu())
 
         # RESET GLOBAL
         if body in RESET_CMDS:
             reset(session)
             db.session.commit()
-            return send("🕊️ MENU PRINCIPAL\n1- Signalement\n2- Déclarer\n3- Conseil\n4- SOS")
+            return send(main_menu())
 
         # =====================================================
-        # AUDIO PRIORITAIRE (VERNACULAIRE)
+        # AUDIO PRIORITY (IMPORTANT)
         # =====================================================
         if is_audio(request):
 
             signal = Signalement(
                 telephone=user,
-                categorie="Audio / Vernaculaire",
+                categorie="Audio",
                 sous_categorie="Message vocal Moba",
                 commune="N/A",
                 canton="N/A",
@@ -221,44 +288,99 @@ def webhook():
             db.session.add(signal)
             db.session.commit()
 
-            # ENVOI WHATSAPP À L'AMBASSADEUR
-            msg_amb = (
-                "🔔 NOUVELLE ALERTE AUDIO\n\n"
-                f"📞 Demandeur : {user}\n"
-                "📌 Type : Message vocal (Moba)\n\n"
-                "⚠️ Traitement immédiat requis"
-            )
+            notify_vernaculaire(user)
 
-            send_whatsapp(VERNACULAIRE["tel"], msg_amb)
+            reset(session)
+            db.session.commit()
 
             return send(
-                "🎤 AUDIO REÇU\n\n"
-                f"✔ Envoyé à {VERNACULAIRE['nom']}\n"
+                "🎤 *AUDIO REÇU*\n\n"
+                f"👤 Transmis à {VERNACULAIRE['nom']}\n"
                 f"📞 {VERNACULAIRE['tel']}\n\n"
                 "🔄 MENU"
             )
 
         # =====================================================
-        # FLOW NORMAL SIMPLIFIÉ (STABLE)
+        # FLOW NORMAL
         # =====================================================
 
         if session.step == "menu":
+
             if body in MENU:
                 session.main = body
                 session.step = "sub"
                 db.session.commit()
+                return send(sub_menu(body))
 
-                txt = f"📌 {MENU[body]['label']}\n\n"
-                for k, v in MENU[body]["sub"].items():
-                    txt += f"{k}️⃣ {v}\n"
-                return send(txt)
+            return send(main_menu())
 
-            return send("🕊️ MENU\n1- Signalement\n2- Déclarer\n3- Conseil\n4- SOS")
+        if session.step == "sub":
 
-        # fallback sécurité
+            if body in MENU[session.main]["sub"]:
+                session.sub = body
+                session.step = "commune"
+                db.session.commit()
+                return send(commune_menu())
+
+            return send(sub_menu(session.main))
+
+        if session.step == "commune":
+
+            if body in COMMUNES:
+                session.commune = body
+                session.step = "canton"
+                db.session.commit()
+                return send(canton_menu(body))
+
+            return send(commune_menu())
+
+        if session.step == "canton":
+
+            if body not in COMMUNES[session.commune]["cantons"]:
+                return send(canton_menu(session.commune))
+
+            canton_label = COMMUNES[session.commune]["cantons"][body]
+            commune_label = COMMUNES[session.commune]["nom"]
+
+            categorie = MENU[session.main]["label"]
+            sous = MENU[session.main]["sub"][session.sub]
+
+            amb_nom, amb_tel = get_ambassadeur(session.commune, categorie)
+
+            signal = Signalement(
+                telephone=user,
+                categorie=categorie,
+                sous_categorie=sous,
+                commune=commune_label,
+                canton=canton_label,
+                ambassadeur_nom=amb_nom,
+                ambassadeur_tel=amb_tel,
+                type_signal="texte"
+            )
+
+            db.session.add(signal)
+            db.session.commit()
+
+            message = (
+                "🟢 *SIGNALEMENT ENREGISTRÉ*\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+                f"📌 Catégorie : {categorie}\n"
+                f"📎 Type : {sous}\n"
+                f"🏛️ Commune : {commune_label}\n"
+                f"📍 Canton : {canton_label}\n\n"
+                "👤 Ambassadeur :\n"
+                f"{amb_nom} - {amb_tel}\n\n"
+                "🔄 MENU"
+            )
+
+            reset(session)
+            db.session.commit()
+
+            return send(message)
+
         reset(session)
         db.session.commit()
-        return send("🕊️ MENU")
+        return send(main_menu())
 
 
 # =========================================================
