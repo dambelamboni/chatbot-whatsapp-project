@@ -202,7 +202,7 @@ def get_ambassadeur(commune_key, category):
 def main_menu():
     return (
         "🕊️ *MURMURES DU QUARTIER*\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n\n"
         "1️⃣ Signalement\n"
         "2️⃣ Déclarer un fait\n"
         "3️⃣ Obtenir un conseil\n"
@@ -282,10 +282,10 @@ def webhook():
 
             return send(
                 "🎤 *MESSAGE AUDIO REÇU*\n"
-                "━━━━━━━━━━━━━━━━━━\n\n"
+                "━━━━━━━━━━━━━━━━━━━\n\n"
                 "📌 Votre message vocal a été enregistré\n\n"
                 "👤 Ambassadeur vernaculaire assigné :\n"
-                f"{VERNACULAIRE['nom']} - {VERNACULAIRE['tel']}\n\n"
+                f"{VERNACULAIRE['nom']} : {VERNACULAIRE['tel']}\n\n"
                 "✔ Vous serez contacté rapidement\n\n"
                 "🔄 MENU pour revenir"
             )
@@ -362,13 +362,13 @@ def webhook():
 
             message = (
                 "🟢 *SIGNALEMENT ENREGISTRÉ*\n"
-                "━━━━━━━━━━━━━━━━━━\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"📌 Catégorie : {categorie}\n"
                 f"📎 Type : {sous}\n"
                 f"🏛️ Commune : {commune}\n"
                 f"📍 Canton : {canton}\n\n"
                 "👤 Ambassadeur :\n"
-                f"{amb_nom} - {amb_tel}\n\n"
+                f"{amb_nom} : {amb_tel}\n\n"
                 "✔ Transmission réussie\n\n"
                 "🔄 MENU pour recommencer"
             )
