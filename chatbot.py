@@ -13,7 +13,7 @@ app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
-    "sqlite:///murmures_final.db"
+    "sqlite:///murmures_secure.db"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -106,7 +106,7 @@ MENU = {
 }
 
 # =========================================================
-# COMMUNES + CANTONS (CORRIGÉ COMPLET)
+# COMMUNES / CANTONS
 # =========================================================
 
 COMMUNES = {
@@ -221,7 +221,7 @@ def canton_menu(commune):
     return txt
 
 # =========================================================
-# WEBHOOK
+# WEBHOOK (CORE LOGIC)
 # =========================================================
 
 @app.route("/webhook", methods=["POST"])
@@ -234,6 +234,7 @@ def webhook():
 
         session = UserSession.query.get(user)
 
+        # INIT SESSION
         if not session:
             session = UserSession(id=user)
             db.session.add(session)
@@ -247,7 +248,7 @@ def webhook():
             return send(main_menu())
 
         # =====================================================
-        # MENU
+        # STEP 1: MENU
         # =====================================================
         if session.step == "menu":
 
@@ -260,7 +261,7 @@ def webhook():
             return send(main_menu())
 
         # =====================================================
-        # SUB MENU
+        # STEP 2: SUB MENU
         # =====================================================
         if session.step == "sub":
 
@@ -273,7 +274,7 @@ def webhook():
             return send(sub_menu(session.main))
 
         # =====================================================
-        # COMMUNE
+        # STEP 3: COMMUNE
         # =====================================================
         if session.step == "commune":
 
@@ -286,57 +287,67 @@ def webhook():
             return send(commune_menu())
 
         # =====================================================
-        # CANTON + FINAL
+        # STEP 4: CANTON + FINAL PROCESS
         # =====================================================
         if session.step == "canton":
 
             if body not in COMMUNES[session.commune]["cantons"]:
                 return send(canton_menu(session.commune))
 
-            canton = COMMUNES[session.commune]["cantons"][body]
+            canton_label = COMMUNES[session.commune]["cantons"][body]
+            session.canton = canton_label
 
-            category = MENU[session.main]["label"]
-            subcategory = MENU[session.main]["sub"][session.sub]
+            categorie = MENU[session.main]["label"]
+            sous_categorie = MENU[session.main]["sub"][session.sub]
+            commune_label = COMMUNES[session.commune]["nom"]
 
-            amb_name, amb_tel = get_ambassadeur(session.commune, category)
+            amb = get_ambassadeur(session.commune, categorie)
+            amb_nom, amb_tel = amb
 
-            # SAVE
+            # SAVE DB
             signal = Signalement(
                 telephone=user,
-                categorie=category,
-                sous_categorie=subcategory,
-                commune=COMMUNES[session.commune]["nom"],
-                canton=canton,
-                ambassadeur_nom=amb_name,
+                categorie=categorie,
+                sous_categorie=sous_categorie,
+                commune=commune_label,
+                canton=canton_label,
+                ambassadeur_nom=amb_nom,
                 ambassadeur_tel=amb_tel
             )
 
             db.session.add(signal)
             db.session.commit()
 
-            # MESSAGE FINAL (AVANT RESET)
+            # BUILD MESSAGE BEFORE RESET
             message = (
                 "🟢 *SIGNALEMENT ENREGISTRÉ*\n"
                 "━━━━━━━━━━━━━━━━━━\n\n"
-                f"📌 Catégorie : {category}\n"
-                f"📎 Sous-catégorie : {subcategory}\n"
-                f"🏛️ Commune : {COMMUNES[session.commune]['nom']}\n"
-                f"📍 Canton : {canton}\n\n"
-                "👤 Ambassadeur :\n"
-                f"{amb_name} - {amb_tel}\n\n"
+                f"📌 Catégorie : {categorie}\n"
+                f"📎 Type : {sous_categorie}\n"
+                f"🏛️ Commune : {commune_label}\n"
+                f"📍 Canton : {canton_label}\n\n"
+                "👤 Ambassadeur assigné :\n"
+                f"Nom : {amb_nom}\n"
+                f"Téléphone : {amb_tel}\n\n"
                 "✔ Transmission réussie\n\n"
                 "🔄 MENU pour recommencer"
             )
 
+            # RESET SAFE
             reset(session)
             db.session.commit()
 
             return send(message)
 
+        # FALLBACK SAFE
         reset(session)
         db.session.commit()
         return send(main_menu())
 
+
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
     app.run(debug=True)
