@@ -13,7 +13,7 @@ app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
-    "sqlite:///murmures_production.db"
+    "sqlite:///murmures_final.db"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -69,71 +69,49 @@ RESET_CMDS = {"menu", "0", "restart", "accueil", "home"}
 # =========================================================
 
 MENU = {
-    "1": {
-        "label": "Signalement",
-        "sub": {
-            "1": "Conflits ou violence",
-            "2": "Viol ou VBG",
-            "3": "Rumeur du quartier",
-            "4": "Groupe suspect ou personne suspecte"
-        }
-    },
-    "2": {
-        "label": "Déclarer un fait",
-        "sub": {
-            "1": "Injustice sociale",
-            "2": "Vulnérabilités",
-            "3": "Tensions naissantes ou malentendus"
-        }
-    },
-    "3": {
-        "label": "Obtenir un conseil",
-        "sub": {
-            "1": "Cas de VBG",
-            "2": "Viol",
-            "3": "Litige foncier",
-            "4": "Autres"
-        }
-    },
-    "4": {
-        "label": "SOS (Urgence)",
-        "sub": {
-            "1": "Braquage",
-            "2": "Cambriolage",
-            "3": "Agression ou attaque terroriste"
-        }
-    }
+    "1": {"label": "Signalement", "sub": {
+        "1": "Conflits ou violence",
+        "2": "Viol ou VBG",
+        "3": "Rumeur du quartier",
+        "4": "Groupe suspect ou personne suspecte"
+    }},
+    "2": {"label": "Déclarer un fait", "sub": {
+        "1": "Injustice sociale",
+        "2": "Vulnérabilités",
+        "3": "Tensions naissantes"
+    }},
+    "3": {"label": "Obtenir un conseil", "sub": {
+        "1": "Cas VBG",
+        "2": "Viol",
+        "3": "Litige foncier",
+        "4": "Autres"
+    }},
+    "4": {"label": "SOS (Urgence)", "sub": {
+        "1": "Braquage",
+        "2": "Cambriolage",
+        "3": "Agression ou attaque terroriste"
+    }}
 }
 
 # =========================================================
-# COMMUNES / CANTONS
+# COMMUNES + CANTONS
 # =========================================================
 
 COMMUNES = {
     "1": {
         "nom": "Commune de Tandjouaré",
         "cantons": {
-            "1": "Bogou",
-            "2": "Bombouaka",
-            "3": "Boulogou",
-            "4": "Pligou",
-            "5": "Tammongue",
-            "6": "Loko",
-            "7": "Nandoga",
-            "8": "Goundoga"
+            "1": "Bogou", "2": "Bombouaka", "3": "Boulogou",
+            "4": "Pligou", "5": "Tammongue", "6": "Loko",
+            "7": "Nandoga", "8": "Goundoga"
         }
     },
     "2": {
         "nom": "Commune de Nano",
         "cantons": {
-            "1": "Bagou",
-            "2": "Sissiek",
-            "3": "Sangou",
-            "4": "Nano",
-            "5": "Mamprougou",
-            "6": "Lokpanou",
-            "7": "Tampialim",
-            "8": "Doukpergou"
+            "1": "Bagou", "2": "Sissiek", "3": "Sangou",
+            "4": "Nano", "5": "Mamprougou", "6": "Lokpanou",
+            "7": "Tampialim", "8": "Doukpergou"
         }
     }
 }
@@ -147,7 +125,7 @@ AMBASSADEURS = {
         "Signalement": ("Jean K.", "+22890011234"),
         "Déclarer un fait": ("Sara T.", "+22890122345"),
         "Obtenir un conseil": ("Amina K.", "+22890233456"),
-        "SOS (Urgence)": ("Police nationale", "112")
+        "SOS (Urgence)": ("Police", "112")
     },
     "2": {
         "Signalement": ("Lea S.", "+22890566789"),
@@ -163,7 +141,7 @@ AMBASSADEURS = {
 
 VERNACULAIRE = {
     "nom": "Banganaré Tikita",
-    "tel": "+22892391868"
+    "tel": "+33780261877"
 }
 
 # =========================================================
@@ -196,20 +174,19 @@ def get_ambassadeur(commune_key, category):
     return AMBASSADEURS.get(commune_key, {}).get(category, ("Non assigné", "N/A"))
 
 # =========================================================
-# MENUS
+# MENU
 # =========================================================
 
 def main_menu():
     return (
         "🕊️ *MURMURES DU QUARTIER*\n"
-        "━━━━━━━━━━━━━━━━━━━\n\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
         "1️⃣ Signalement\n"
         "2️⃣ Déclarer un fait\n"
         "3️⃣ Obtenir un conseil\n"
         "4️⃣ SOS (Urgence)\n\n"
-        "🔄 MENU pour revenir à tout moment"
+        "🔄 MENU pour revenir"
     )
-
 
 def sub_menu(main):
     txt = f"📌 *{MENU[main]['label']}*\n\n"
@@ -230,11 +207,10 @@ def canton_menu(commune):
     txt = f"📍 *{COMMUNES[commune]['nom']}*\n\n"
     for k, v in COMMUNES[commune]["cantons"].items():
         txt += f"{k}️⃣ {v}\n"
-    txt += "\n🔄 MENU pour revenir"
     return txt
 
 # =========================================================
-# WEBHOOK CORE
+# WEBHOOK
 # =========================================================
 
 @app.route("/webhook", methods=["POST"])
@@ -253,16 +229,14 @@ def webhook():
             db.session.commit()
             return send(main_menu())
 
-        # =====================================================
         # RESET GLOBAL
-        # =====================================================
         if body in RESET_CMDS:
             reset(session)
             db.session.commit()
             return send(main_menu())
 
         # =====================================================
-        # 🔥 CAS AUDIO (PRIORITÉ ABSOLUE)
+        # AUDIO (VERNACULAIRE)
         # =====================================================
         if is_audio(request):
 
@@ -270,8 +244,8 @@ def webhook():
                 telephone=user,
                 categorie="Audio / Vernaculaire",
                 sous_categorie="Message vocal Moba",
-                commune="Non spécifiée",
-                canton="Non spécifié",
+                commune="N/A",
+                canton="N/A",
                 ambassadeur_nom=VERNACULAIRE["nom"],
                 ambassadeur_tel=VERNACULAIRE["tel"],
                 type_signal="audio"
@@ -280,19 +254,25 @@ def webhook():
             db.session.add(signal)
             db.session.commit()
 
+            # 🔥 NOTIFICATION AVEC NUMERO DEMANDEUR
+            print(
+                "🔔 AUDIO REÇU\n"
+                f"📞 Demandeur: {user}\n"
+                f"👤 Assigné: {VERNACULAIRE['nom']} : {VERNACULAIRE['tel']}"
+            )
+
             return send(
-                "🎤 *MESSAGE AUDIO REÇU*\n"
-                "━━━━━━━━━━━━━━━━━━━\n\n"
-                "📌 Votre message vocal a été enregistré\n\n"
-                "👤 Ambassadeur vernaculaire assigné :\n"
-                f"{VERNACULAIRE['nom']} : {VERNACULAIRE['tel']}\n\n"
+                "🎤 MESSAGE AUDIO REÇU\n\n"
+                f"👤 Transmis à : {VERNACULAIRE['nom']}\n"
+                f"📞 {VERNACULAIRE['tel']}\n\n"
                 "✔ Vous serez contacté rapidement\n\n"
                 "🔄 MENU pour revenir"
             )
 
         # =====================================================
-        # MENU PRINCIPAL
+        # FLOW NORMAL
         # =====================================================
+
         if session.step == "menu":
 
             if body in MENU:
@@ -303,9 +283,6 @@ def webhook():
 
             return send(main_menu())
 
-        # =====================================================
-        # SOUS MENU
-        # =====================================================
         if session.step == "sub":
 
             if body in MENU[session.main]["sub"]:
@@ -316,9 +293,6 @@ def webhook():
 
             return send(sub_menu(session.main))
 
-        # =====================================================
-        # COMMUNE
-        # =====================================================
         if session.step == "commune":
 
             if body in COMMUNES:
@@ -329,9 +303,6 @@ def webhook():
 
             return send(commune_menu())
 
-        # =====================================================
-        # CANTON + FINAL SAVE
-        # =====================================================
         if session.step == "canton":
 
             if body not in COMMUNES[session.commune]["cantons"]:
@@ -360,23 +331,20 @@ def webhook():
             db.session.add(signal)
             db.session.commit()
 
-            message = (
-                "🟢 *SIGNALEMENT ENREGISTRÉ*\n"
-                "━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"📌 Catégorie : {categorie}\n"
-                f"📎 Type : {sous}\n"
-                f"🏛️ Commune : {commune}\n"
-                f"📍 Canton : {canton}\n\n"
-                "👤 Ambassadeur :\n"
-                f"{amb_nom} : {amb_tel}\n\n"
-                "✔ Transmission réussie\n\n"
-                "🔄 MENU pour recommencer"
-            )
-
             reset(session)
             db.session.commit()
 
-            return send(message)
+            return send(
+                "🟢 SIGNALEMENT ENREGISTRÉ\n\n"
+                f"📌 {categorie}\n"
+                f"📎 {sous}\n"
+                f"🏛️ {commune}\n"
+                f"📍 {canton}\n\n"
+                "👤 Ambassadeur :\n"
+                f"{amb_nom} : {amb_tel}\n\n"
+                "✔ Traitement en cours\n\n"
+                "🔄 MENU"
+            )
 
         reset(session)
         db.session.commit()
