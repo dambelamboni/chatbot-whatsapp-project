@@ -117,21 +117,13 @@ AMBASSADEURS = {
 }
 
 # =========================================================
-# HELPERS
+# HELPERS (SECURITE + STABILITE)
 # =========================================================
 
 def send_reply(msg):
     resp = MessagingResponse()
     resp.message(msg)
     return str(resp)
-
-
-def normalize(text):
-    return text.strip().lower() if text else ""
-
-
-def is_valid_number(value, keys):
-    return value.isdigit() and value in keys
 
 
 def reset_session(session):
@@ -142,23 +134,32 @@ def reset_session(session):
     session.canton = None
 
 
+def normalize(text):
+    return text.strip().lower() if text else ""
+
+
+def is_valid_number(value, keys):
+    return value.isdigit() and value in keys
+
+
 def get_ambassadeur(commune, categorie):
     return AMBASSADEURS.get(commune, {}).get(
         categorie,
         {"nom": "Non assigné", "tel": "Non disponible"}
     )
 
-RESET_CMDS = ["menu", "0", "restart", "accueil", "home", "retour"]
 
-def should_reset(body):
-    return any(cmd in body for cmd in RESET_CMDS)
+RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
+
+def is_reset(body):
+    return body in RESET_CMDS
 
 # =========================================================
 # MENUS
 # =========================================================
 
 def get_main_menu():
-    text = "\n━━━━━━━ 🕊️ MURMURES DU QUARTIER ━━━━━━━\n\n"
+    text = "🕊️ *MURMURES DU QUARTIER*\n━━━━━━━━━━━━━━\n\n"
     for k, v in CATEGORIES.items():
         text += f"{k}️⃣ {v}\n"
     text += "\n🔄 MENU pour revenir à tout moment."
@@ -177,13 +178,15 @@ def get_commune_menu():
 def get_canton_menu(commune):
     data = COMMUNES[commune]
     text = f"📍 {data['nom']}\n\nChoisissez votre canton :\n\n"
+
     for k, v in data["cantons"].items():
         text += f"{k}️⃣ {v}\n"
+
     text += "\n🔄 MENU pour revenir."
     return text
 
 # =========================================================
-# WEBHOOK
+# WEBHOOK (CORE STABLE + SAFE)
 # =========================================================
 
 @app.route("/webhook", methods=["POST"])
@@ -199,21 +202,27 @@ def webhook():
 
         session = UserSession.query.get(user_id)
 
-        # INIT
+        # =====================================================
+        # INIT SESSION
+        # =====================================================
+
         if not session:
             session = UserSession(id=user_id)
             db.session.add(session)
             db.session.commit()
             return send_reply(get_main_menu())
 
-        # GLOBAL RESET
-        if should_reset(body):
+        # =====================================================
+        # RESET GLOBAL (ULTRA PRIORITAIRE)
+        # =====================================================
+
+        if is_reset(body):
             reset_session(session)
             db.session.commit()
             return send_reply(get_main_menu())
 
         # =====================================================
-        # MENU
+        # MENU PRINCIPAL
         # =====================================================
 
         if session.step == "menu":
@@ -225,14 +234,14 @@ def webhook():
 
                 return send_reply(
                     "✍️ Décrivez la situation :\n\n"
-                    "Ex: incident, problème, demande d’aide...\n\n"
+                    "Ex: incident, problème, urgence...\n\n"
                     "🔄 MENU pour annuler."
                 )
 
             return send_reply(get_main_menu())
 
         # =====================================================
-        # DESCRIPTION
+        # DESCRIPTION (VALIDATION FORTE)
         # =====================================================
 
         if session.step == "description":
@@ -266,7 +275,7 @@ def webhook():
             return send_reply(get_canton_menu(body))
 
         # =====================================================
-        # CANTON + SAVE
+        # CANTON + SAVE (SAFE FINAL)
         # =====================================================
 
         if session.step == "canton":
@@ -276,10 +285,17 @@ def webhook():
                 None
             )
 
-            if not commune_key or not is_valid_number(body, COMMUNES[commune_key]["cantons"].keys()):
+            if not commune_key or not is_valid_number(
+                body,
+                COMMUNES[commune_key]["cantons"].keys()
+            ):
                 return send_reply(get_canton_menu(commune_key))
 
             session.canton = COMMUNES[commune_key]["cantons"][body]
+
+            # =================================================
+            # SAVE SAFE
+            # =================================================
 
             amb = get_ambassadeur(session.commune, session.categorie)
 
@@ -316,7 +332,7 @@ def webhook():
     except Exception as e:
         print("ERROR:", e)
         return send_reply(
-            "⚠️ Une erreur est survenue.\n"
+            "⚠️ Erreur technique.\n"
             "Tapez MENU pour recommencer."
         )
 
