@@ -30,7 +30,8 @@ class UserSession(db.Model):
     step = db.Column(db.String(30), default="menu")
 
     categorie = db.Column(db.String(100))
-    sous_categorie = db.Column(db.String(100))
+    description = db.Column(db.Text)
+
     commune = db.Column(db.String(100))
     canton = db.Column(db.String(100))
 
@@ -42,7 +43,7 @@ class Signalement(db.Model):
     telephone = db.Column(db.String(50))
 
     categorie = db.Column(db.String(100))
-    sous_categorie = db.Column(db.String(100))
+    description = db.Column(db.Text)
 
     commune = db.Column(db.String(100))
     canton = db.Column(db.String(100))
@@ -62,50 +63,11 @@ with app.app_context():
 # =========================================================
 
 CATEGORIES = {
-    "1": {
-        "nom": "Signalement",
-        "options": {
-            "1": "Conflit ou violence",
-            "2": "Viol ou VBG",
-            "3": "Rumeur du quartier",
-            "4": "Groupe ou personne suspecte"
-        }
-    },
-    "2": {
-        "nom": "Déclarer un fait",
-        "options": {
-            "1": "Injustice sociale",
-            "2": "Vulnérabilité communautaire",
-            "3": "Tension naissante ou malentendu"
-        }
-    },
-    "3": {
-        "nom": "Obtenir un conseil",
-        "options": {
-            "1": "Cas de VBG",
-            "2": "Cas de viol",
-            "3": "Litige foncier",
-            "4": "Autre situation"
-        }
-    },
-    "4": {
-        "nom": "SOS (Urgence)",
-        "options": {
-            "1": "Agression en cours",
-            "2": "Attaque terroriste",
-            "3": "Braquage ou cambriolage",
-            "4": "Autre urgence sécuritaire"
-        }
-    },
-    "5": {
-        "nom": "Autres",
-        "options": {
-            "1": "Poser une question",
-            "2": "Faire une suggestion",
-            "3": "Contacter l'équipe",
-            "4": "Autre demande"
-        }
-    }
+    "1": "Signalement",
+    "2": "Déclarer un fait",
+    "3": "Obtenir un conseil",
+    "4": "SOS (Urgence)",
+    "5": "Autres"
 }
 
 COMMUNES = {
@@ -139,16 +101,18 @@ COMMUNES = {
 
 AMBASSADEURS = {
     "Commune de Tandjouaré": {
-        "Conflit ou violence": {"nom": "Jean K.", "tel": "+22890011234"},
-        "Viol ou VBG": {"nom": "Sara T.", "tel": "+22890122345"},
-        "Rumeur du quartier": {"nom": "Amina K.", "tel": "+22890233456"},
-        "Groupe ou personne suspecte": {"nom": "Paul A.", "tel": "+22890344567"},
+        "Signalement": {"nom": "Jean K.", "tel": "+22890011234"},
+        "Déclarer un fait": {"nom": "Sara T.", "tel": "+22890122345"},
+        "Obtenir un conseil": {"nom": "Amina K.", "tel": "+22890233456"},
+        "SOS (Urgence)": {"nom": "Paul A.", "tel": "+22890344567"},
+        "Autres": {"nom": "Luc M.", "tel": "+22890455678"}
     },
     "Commune de Nano": {
-        "Conflit ou violence": {"nom": "Lea S.", "tel": "+22890455678"},
-        "Viol ou VBG": {"nom": "Yao I.", "tel": "+22890566789"},
-        "Rumeur du quartier": {"nom": "Luc A.", "tel": "+22890677890"},
-        "Groupe ou personne suspecte": {"nom": "Emma T.", "tel": "+22890788901"},
+        "Signalement": {"nom": "Lea S.", "tel": "+22890566789"},
+        "Déclarer un fait": {"nom": "Yao I.", "tel": "+22890677890"},
+        "Obtenir un conseil": {"nom": "Emma T.", "tel": "+22890788901"},
+        "SOS (Urgence)": {"nom": "Ali B.", "tel": "+22890899012"},
+        "Autres": {"nom": "Sara M.", "tel": "+22890910123"}
     }
 }
 
@@ -162,43 +126,42 @@ def send_reply(msg):
     return str(resp)
 
 
+def normalize(text):
+    return text.strip().lower() if text else ""
+
+
+def is_valid_number(value, keys):
+    return value.isdigit() and value in keys
+
+
 def reset_session(session):
     session.step = "menu"
     session.categorie = None
-    session.sous_categorie = None
+    session.description = None
     session.commune = None
     session.canton = None
 
 
-def get_ambassadeur(commune, sous_categorie):
+def get_ambassadeur(commune, categorie):
     return AMBASSADEURS.get(commune, {}).get(
-        sous_categorie,
+        categorie,
         {"nom": "Non assigné", "tel": "Non disponible"}
     )
+
+RESET_CMDS = ["menu", "0", "restart", "accueil", "home", "retour"]
+
+def should_reset(body):
+    return any(cmd in body for cmd in RESET_CMDS)
 
 # =========================================================
 # MENUS
 # =========================================================
 
 def get_main_menu():
-    return (
-        "🕊️ *MURMURES DU QUARTIER*\n"
-        "━━━━━━━━━━━━━━\n\n"
-        "1️⃣ Signalement\n"
-        "2️⃣ Déclarer un fait\n"
-        "3️⃣ Obtenir un conseil\n"
-        "4️⃣ SOS (Urgence)\n"
-        "5️⃣ Autres\n\n"
-        "🔄 MENU pour revenir à tout moment."
-    )
-
-
-def get_sub_menu(cat):
-    data = CATEGORIES[cat]
-    text = f"📂 *{data['nom']}*\n━━━━━━━━━━━━━━\n\n"
-    for k, v in data["options"].items():
+    text = "\n━━━━━━━ 🕊️ MURMURES DU QUARTIER ━━━━━━━\n\n"
+    for k, v in CATEGORIES.items():
         text += f"{k}️⃣ {v}\n"
-    text += "\n🔄 MENU pour revenir."
+    text += "\n🔄 MENU pour revenir à tout moment."
     return text
 
 
@@ -226,132 +189,136 @@ def get_canton_menu(commune):
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
-    user_id = request.form.get("From")
-    body = request.form.get("Body", "").strip().lower()
+    try:
+        user_id = request.form.get("From")
+        body_raw = request.form.get("Body", "")
+        body = normalize(body_raw)
 
-    if not user_id:
-        abort(400)
+        if not user_id:
+            return "Missing user", 400
 
-    session = UserSession.query.get(user_id)
+        session = UserSession.query.get(user_id)
 
-    # ---------------- INIT ----------------
-    if not session:
-        session = UserSession(id=user_id)
-        db.session.add(session)
-        db.session.commit()
-        return send_reply(get_main_menu())
-
-    # =====================================================
-    # RESET GLOBAL (TOUJOURS PRIORITAIRE)
-    # =====================================================
-
-    RESET = ["menu", "0", "restart", "accueil", "home", "retour"]
-
-    if any(cmd in body for cmd in RESET):
-        reset_session(session)
-        db.session.commit()
-        return send_reply(get_main_menu())
-
-    # =====================================================
-    # MENU PRINCIPAL
-    # =====================================================
-
-    if session.step == "menu":
-
-        if body in CATEGORIES:
-            session.categorie = CATEGORIES[body]["nom"]
-            session.step = "sous_menu"
+        # INIT
+        if not session:
+            session = UserSession(id=user_id)
+            db.session.add(session)
             db.session.commit()
-            return send_reply(get_sub_menu(body))
+            return send_reply(get_main_menu())
 
-        return send_reply(get_main_menu())
+        # GLOBAL RESET
+        if should_reset(body):
+            reset_session(session)
+            db.session.commit()
+            return send_reply(get_main_menu())
 
-    # =====================================================
-    # SOUS CATEGORIE
-    # =====================================================
+        # =====================================================
+        # MENU
+        # =====================================================
 
-    if session.step == "sous_menu":
+        if session.step == "menu":
 
-        cat_key = None
-        for k, v in CATEGORIES.items():
-            if v["nom"] == session.categorie:
-                cat_key = k
-                break
+            if is_valid_number(body, CATEGORIES.keys()):
+                session.categorie = CATEGORIES[body]
+                session.step = "description"
+                db.session.commit()
 
-        if not cat_key or body not in CATEGORIES[cat_key]["options"]:
-            return send_reply(get_sub_menu(cat_key))
+                return send_reply(
+                    "✍️ Décrivez la situation :\n\n"
+                    "Ex: incident, problème, demande d’aide...\n\n"
+                    "🔄 MENU pour annuler."
+                )
 
-        session.sous_categorie = CATEGORIES[cat_key]["options"][body]
-        session.step = "commune"
-        db.session.commit()
+            return send_reply(get_main_menu())
 
-        return send_reply(get_commune_menu())
+        # =====================================================
+        # DESCRIPTION
+        # =====================================================
 
-    # =====================================================
-    # COMMUNE
-    # =====================================================
+        if session.step == "description":
 
-    if session.step == "commune":
+            if len(body_raw.strip()) < 3:
+                return send_reply(
+                    "⚠️ Description trop courte.\n"
+                    "Merci de détailler.\n\n"
+                    "🔄 MENU pour annuler."
+                )
 
-        if body not in COMMUNES:
+            session.description = body_raw.strip()
+            session.step = "commune"
+            db.session.commit()
+
             return send_reply(get_commune_menu())
 
-        session.commune = COMMUNES[body]["nom"]
-        session.step = "canton"
-        db.session.commit()
+        # =====================================================
+        # COMMUNE
+        # =====================================================
 
-        return send_reply(get_canton_menu(body))
+        if session.step == "commune":
 
-    # =====================================================
-    # CANTON + SAVE
-    # =====================================================
+            if not is_valid_number(body, COMMUNES.keys()):
+                return send_reply(get_commune_menu())
 
-    if session.step == "canton":
+            session.commune = COMMUNES[body]["nom"]
+            session.step = "canton"
+            db.session.commit()
 
-        commune_key = None
-        for k, v in COMMUNES.items():
-            if v["nom"] == session.commune:
-                commune_key = k
-                break
+            return send_reply(get_canton_menu(body))
 
-        if not commune_key or body not in COMMUNES[commune_key]["cantons"]:
-            return send_reply(get_canton_menu(commune_key))
+        # =====================================================
+        # CANTON + SAVE
+        # =====================================================
 
-        session.canton = COMMUNES[commune_key]["cantons"][body]
+        if session.step == "canton":
 
-        amb = get_ambassadeur(session.commune, session.sous_categorie)
+            commune_key = next(
+                (k for k, v in COMMUNES.items() if v["nom"] == session.commune),
+                None
+            )
 
-        signalement = Signalement(
-            telephone=user_id,
-            categorie=session.categorie,
-            sous_categorie=session.sous_categorie,
-            commune=session.commune,
-            canton=session.canton,
-            ambassadeur_nom=amb["nom"],
-            ambassadeur_tel=amb["tel"]
-        )
+            if not commune_key or not is_valid_number(body, COMMUNES[commune_key]["cantons"].keys()):
+                return send_reply(get_canton_menu(commune_key))
 
-        db.session.add(signalement)
+            session.canton = COMMUNES[commune_key]["cantons"][body]
 
-        reset_session(session)
-        db.session.commit()
+            amb = get_ambassadeur(session.commune, session.categorie)
 
+            signalement = Signalement(
+                telephone=user_id,
+                categorie=session.categorie,
+                description=session.description,
+                commune=session.commune,
+                canton=session.canton,
+                ambassadeur_nom=amb["nom"],
+                ambassadeur_tel=amb["tel"]
+            )
+
+            db.session.add(signalement)
+
+            reset_session(session)
+            db.session.commit()
+
+            return send_reply(
+                "✅ *SIGNALEMENT ENREGISTRÉ*\n"
+                "━━━━━━━━━━━━━━\n\n"
+                f"📂 Catégorie : {signalement.categorie}\n"
+                f"📝 Description : {signalement.description}\n"
+                f"🏛️ Commune : {signalement.commune}\n"
+                f"📍 Canton : {signalement.canton}\n\n"
+                "👤 Ambassadeur :\n"
+                f"{amb['nom']} - {amb['tel']}\n\n"
+                "🕊️ Merci pour votre contribution.\n\n"
+                "MENU pour recommencer."
+            )
+
+        return send_reply(get_main_menu())
+
+    except Exception as e:
+        print("ERROR:", e)
         return send_reply(
-            "✅ *SIGNALEMENT ENREGISTRÉ*\n"
-            "━━━━━━━━━━━━━━\n\n"
-            f"📂 Catégorie : {signalement.categorie}\n"
-            f"📌 Type : {signalement.sous_categorie}\n"
-            f"🏛️ Commune : {signalement.commune}\n"
-            f"📍 Canton : {signalement.canton}\n\n"
-            "👤 *Ambassadeur assigné :*\n"
-            f"Nom : {amb['nom']}\n"
-            f"Téléphone : {amb['tel']}\n\n"
-            "🕊️ Merci pour votre contribution.\n\n"
+            "⚠️ Une erreur est survenue.\n"
             "Tapez MENU pour recommencer."
         )
-
-    return send_reply(get_main_menu())
-
 
 # =========================================================
 # RUN
