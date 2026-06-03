@@ -189,7 +189,7 @@ def get_ambassadeur(commune_key, category):
 def main_menu():
     return (
         "🕊️ *MURMURES DU QUARTIER*\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"    
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"    
         "1️⃣ Signalement\n"
         "2️⃣ Déclarer un fait\n"
         "3️⃣ Obtenir un conseil\n"
@@ -319,7 +319,7 @@ def webhook():
             # BUILD MESSAGE
             message = (
                 "🟢 *SIGNALEMENT ENREGISTRÉ*\n"
-                "━━━━━━━━━━━━━━━━━━\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"📌 Catégorie : {categorie}\n"
                 f"📎 Sous-catégorie : {sous_categorie}\n"
                 f"🏛️ Commune : {commune_label}\n"
