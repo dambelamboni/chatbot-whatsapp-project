@@ -5,7 +5,7 @@ from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
 
 # =========================================================
-# APP
+# APP CONFIG
 # =========================================================
 
 app = Flask(__name__)
@@ -27,12 +27,10 @@ class UserSession(db.Model):
     __tablename__ = "user_sessions"
 
     id = db.Column(db.String(50), primary_key=True)
-
     step = db.Column(db.String(30), default="menu")
 
     categorie = db.Column(db.String(100))
     sous_categorie = db.Column(db.String(100))
-
     commune = db.Column(db.String(100))
     canton = db.Column(db.String(100))
 
@@ -41,7 +39,6 @@ class Signalement(db.Model):
     __tablename__ = "signalements"
 
     id = db.Column(db.Integer, primary_key=True)
-
     telephone = db.Column(db.String(50))
 
     categorie = db.Column(db.String(100))
@@ -50,8 +47,10 @@ class Signalement(db.Model):
     commune = db.Column(db.String(100))
     canton = db.Column(db.String(100))
 
-    statut = db.Column(db.String(20), default="Nouveau")
+    ambassadeur_nom = db.Column(db.String(100))
+    ambassadeur_tel = db.Column(db.String(50))
 
+    statut = db.Column(db.String(20), default="Nouveau")
     date_creation = db.Column(db.DateTime, default=datetime.utcnow)
 
 
@@ -59,7 +58,7 @@ with app.app_context():
     db.create_all()
 
 # =========================================================
-# REFERENTIELS
+# REFERENTIEL CATEGORIES
 # =========================================================
 
 CATEGORIES = {
@@ -72,7 +71,6 @@ CATEGORIES = {
             "4": "Groupe ou personne suspecte"
         }
     },
-
     "2": {
         "nom": "Déclarer un fait",
         "options": {
@@ -81,7 +79,6 @@ CATEGORIES = {
             "3": "Tension naissante ou malentendu"
         }
     },
-
     "3": {
         "nom": "Obtenir un conseil",
         "options": {
@@ -91,7 +88,6 @@ CATEGORIES = {
             "4": "Autre situation"
         }
     },
-
     "4": {
         "nom": "SOS (Urgence)",
         "options": {
@@ -101,7 +97,6 @@ CATEGORIES = {
             "4": "Autre urgence sécuritaire"
         }
     },
-
     "5": {
         "nom": "Autres",
         "options": {
@@ -113,6 +108,9 @@ CATEGORIES = {
     }
 }
 
+# =========================================================
+# COMMUNES & CANTONS
+# =========================================================
 
 COMMUNES = {
     "1": {
@@ -128,7 +126,6 @@ COMMUNES = {
             "8": "Goundoga"
         }
     },
-
     "2": {
         "nom": "Commune de Nano",
         "cantons": {
@@ -145,7 +142,26 @@ COMMUNES = {
 }
 
 # =========================================================
-# MENUS
+# AMBASSADEURS
+# =========================================================
+
+AMBASSADEURS = {
+    "Commune de Tandjouaré": {
+        "Conflit ou violence": {"nom": "Jean K.", "tel": "+22890011234"},
+        "Viol ou VBG": {"nom": "Sara T.", "tel": "+22890122345"},
+        "Rumeur du quartier": {"nom": "Amina K.", "tel": "+22890233456"},
+        "Groupe ou personne suspecte": {"nom": "Paul A.", "tel": "+22890344567"},
+    },
+    "Commune de Nano": {
+        "Conflit ou violence": {"nom": "Lea S.", "tel": "+22890455678"},
+        "Viol ou VBG": {"nom": "Yao I.", "tel": "+22890566789"},
+        "Rumeur du quartier": {"nom": "Luc A.", "tel": "+22890677890"},
+        "Groupe ou personne suspecte": {"nom": "Emma T.", "tel": "+22890788901"},
+    }
+}
+
+# =========================================================
+# HELPERS
 # =========================================================
 
 def send_reply(msg):
@@ -153,6 +169,16 @@ def send_reply(msg):
     resp.message(msg)
     return str(resp)
 
+
+def get_ambassadeur(commune, sous_categorie):
+    return AMBASSADEURS.get(commune, {}).get(
+        sous_categorie,
+        {"nom": "Non assigné", "tel": "Non disponible"}
+    )
+
+# =========================================================
+# MENUS
+# =========================================================
 
 def get_main_menu():
     return (
@@ -170,12 +196,9 @@ def get_main_menu():
 
 def get_sub_menu(cat):
     data = CATEGORIES[cat]
-
     text = f"📂 *{data['nom']}*\n━━━━━━━━━━━━━━\n\n"
-
     for k, v in data["options"].items():
         text += f"{k}️⃣ {v}\n"
-
     return text
 
 
@@ -189,14 +212,10 @@ def get_commune_menu():
 
 def get_canton_menu(commune):
     data = COMMUNES[commune]
-
     text = f"📍 {data['nom']}\n\nChoisissez votre canton :\n\n"
-
     for k, v in data["cantons"].items():
         text += f"{k}️⃣ {v}\n"
-
     return text
-
 
 # =========================================================
 # WEBHOOK
@@ -213,16 +232,14 @@ def webhook():
 
     session = UserSession.query.get(user_id)
 
-    # ---------------- INIT SESSION ----------------
-
+    # ---------------- INIT ----------------
     if not session:
-        session = UserSession(id=user_id, step="menu")
+        session = UserSession(id=user_id)
         db.session.add(session)
         db.session.commit()
         return send_reply(get_main_menu())
 
     # ---------------- RESET ----------------
-
     if body in ["menu", "0", "restart", "accueil"]:
         session.step = "menu"
         session.categorie = None
@@ -299,14 +316,18 @@ def webhook():
 
         session.canton = COMMUNES[commune_key]["cantons"][body]
 
-        # ---------------- SAVE ----------------
+        # ---------------- AMBASSADEUR ----------------
+        amb = get_ambassadeur(session.commune, session.sous_categorie)
 
+        # ---------------- SAVE ----------------
         signalement = Signalement(
             telephone=user_id,
             categorie=session.categorie,
             sous_categorie=session.sous_categorie,
             commune=session.commune,
-            canton=session.canton
+            canton=session.canton,
+            ambassadeur_nom=amb["nom"],
+            ambassadeur_tel=amb["tel"]
         )
 
         db.session.add(signalement)
@@ -323,8 +344,14 @@ def webhook():
         return send_reply(
             "✅ *SIGNALEMENT ENREGISTRÉ*\n"
             "━━━━━━━━━━━━━━\n\n"
-            "Merci pour votre contribution.\n"
-            "Un médiateur traitera votre demande.\n\n"
+            f"📂 Catégorie : {signalement.categorie}\n"
+            f"📌 Type : {signalement.sous_categorie}\n"
+            f"🏛️ Commune : {signalement.commune}\n"
+            f"📍 Canton : {signalement.canton}\n\n"
+            "👤 *Ambassadeur assigné :*\n"
+            f"Nom : {amb['nom']}\n"
+            f"Téléphone : {amb['tel']}\n\n"
+            "🕊️ Merci pour votre contribution à la paix.\n\n"
             "Tapez MENU pour recommencer."
         )
 
