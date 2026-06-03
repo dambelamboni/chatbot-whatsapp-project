@@ -4,6 +4,7 @@ from datetime import datetime
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client  # Import du client Twilio pour envoyer la notification
 
 # =========================================================
 # APP CONFIG
@@ -19,6 +20,17 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 lock = threading.Lock()
+
+# Initialisation du client Twilio pour l'envoi de messages sortants (Notification)
+TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+# Votre numéro Twilio WhatsApp (ex: 'whatsapp:+14155238886')
+TWILIO_FROM = os.getenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886") 
+twilio_client = Client(TWILIO_SID, TWILIO_TOKEN) if TWILIO_SID and TWILIO_TOKEN else None
+
+# Infos de l'ambassadeur de la langue vernaculaire
+AMBASSADEUR_VERNACULAIRE_NOM = "Banganre Tikita"
+AMBASSADEUR_VERNACULAIRE_TEL = "+33780261877"
 
 # =========================================================
 # MODELS
@@ -228,9 +240,66 @@ def canton_menu(commune):
 def webhook():
 
     with lock:
-
         user = request.form.get("From", "").replace("whatsapp:", "")
         body = clean(request.form.get("Body", ""))
+        
+        # Détection de l'audio envoyé par l'utilisateur
+        num_media = int(request.form.get("NumMedia", 0))
+        media_type = request.form.get("MediaContentType0", "")
+        is_audio = num_media > 0 and media_type.startswith("audio/")
+
+        # --- GESTION DE L'AUDIO DETECTÉ ---
+        if is_audio:
+            media_url = request.form.get("MediaUrl0", "Aucun lien")
+            
+            # 1. Envoi de la notification à l'ambassadeur de la langue vernaculaire
+            if twilio_client:
+                try:
+                    twilio_client.messages.create(
+                        from_=TWILIO_FROM,
+                        to=f"whatsapp:{AMBASSADEUR_VERNACULAIRE_TEL}",
+                        body=(
+                            "🎙️ *NOUVEL AUDIO REÇU (Langue Vernaculaire)*\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"👤 De : +{user}\n"
+                            f"📅 Date : {datetime.utcnow().strftime('%d/%m/%Y %H:%M')}\n"
+                            f"🔗 Lien de l'audio : {media_url}\n\n"
+                            "Veuillez recontacter cet utilisateur pour prendre en charge sa demande."
+                        )
+                    )
+                except Exception as e:
+                    print(f"Erreur lors de l'envoi de la notification Twilio: {e}")
+
+            # 2. Sauvegarde d'un signalement générique "Audio" dans la base de données
+            signal = Signalement(
+                telephone=user,
+                categorie="Audio / Langue Vernaculaire",
+                sous_categorie="Message vocal reçu",
+                commune="Non spécifiée",
+                canton="Non spécifié",
+                ambassadeur_nom=AMBASSADEUR_VERNACULAIRE_NOM,
+                ambassadeur_tel=AMBASSADEUR_VERNACULAIRE_TEL
+            )
+            db.session.add(signal)
+            
+            # Si l'utilisateur avait une session en cours, on la réinitialise de manière sécurisée
+            session = UserSession.query.get(user)
+            if session:
+                reset(session)
+            db.session.commit()
+
+            # 3. Réponse à l'utilisateur
+            message_user = (
+                "🎙️ *MESSAGE AUDIO REÇU*\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"Votre message a été transmis à notre ambassadeur en langue vernaculaire, "
+                f"*{AMBASSADEUR_VERNACULAIRE_NOM}*.\n\n"
+                "📞 Il vous contactera très prochainement sur ce numéro pour traiter votre demande.\n\n"
+                "Merci pour votre confiance ! 🙏\n\n"
+                "🔄 Écrivez *MENU* pour revenir à l'accueil."
+            )
+            return send(message_user)
+        # --- FIN DE LA GESTION AUDIO ---
 
         session = UserSession.query.get(user)
 
