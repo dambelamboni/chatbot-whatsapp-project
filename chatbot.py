@@ -58,7 +58,7 @@ with app.app_context():
     db.create_all()
 
 # =========================================================
-# REFERENTIEL CATEGORIES
+# REFERENTIELS
 # =========================================================
 
 CATEGORIES = {
@@ -108,10 +108,6 @@ CATEGORIES = {
     }
 }
 
-# =========================================================
-# COMMUNES & CANTONS
-# =========================================================
-
 COMMUNES = {
     "1": {
         "nom": "Commune de Tandjouaré",
@@ -141,10 +137,6 @@ COMMUNES = {
     }
 }
 
-# =========================================================
-# AMBASSADEURS
-# =========================================================
-
 AMBASSADEURS = {
     "Commune de Tandjouaré": {
         "Conflit ou violence": {"nom": "Jean K.", "tel": "+22890011234"},
@@ -170,6 +162,14 @@ def send_reply(msg):
     return str(resp)
 
 
+def reset_session(session):
+    session.step = "menu"
+    session.categorie = None
+    session.sous_categorie = None
+    session.commune = None
+    session.canton = None
+
+
 def get_ambassadeur(commune, sous_categorie):
     return AMBASSADEURS.get(commune, {}).get(
         sous_categorie,
@@ -189,8 +189,7 @@ def get_main_menu():
         "3️⃣ Obtenir un conseil\n"
         "4️⃣ SOS (Urgence)\n"
         "5️⃣ Autres\n\n"
-        "Répondez par un numéro.\n"
-        "MENU pour revenir."
+        "🔄 MENU pour revenir à tout moment."
     )
 
 
@@ -199,6 +198,7 @@ def get_sub_menu(cat):
     text = f"📂 *{data['nom']}*\n━━━━━━━━━━━━━━\n\n"
     for k, v in data["options"].items():
         text += f"{k}️⃣ {v}\n"
+    text += "\n🔄 MENU pour revenir."
     return text
 
 
@@ -206,7 +206,8 @@ def get_commune_menu():
     return (
         "🏛️ Choisissez votre commune :\n\n"
         "1️⃣ Commune de Tandjouaré\n"
-        "2️⃣ Commune de Nano"
+        "2️⃣ Commune de Nano\n\n"
+        "🔄 MENU pour revenir."
     )
 
 
@@ -215,6 +216,7 @@ def get_canton_menu(commune):
     text = f"📍 {data['nom']}\n\nChoisissez votre canton :\n\n"
     for k, v in data["cantons"].items():
         text += f"{k}️⃣ {v}\n"
+    text += "\n🔄 MENU pour revenir."
     return text
 
 # =========================================================
@@ -239,13 +241,14 @@ def webhook():
         db.session.commit()
         return send_reply(get_main_menu())
 
-    # ---------------- RESET ----------------
-    if body in ["menu", "0", "restart", "accueil"]:
-        session.step = "menu"
-        session.categorie = None
-        session.sous_categorie = None
-        session.commune = None
-        session.canton = None
+    # =====================================================
+    # RESET GLOBAL (TOUJOURS PRIORITAIRE)
+    # =====================================================
+
+    RESET = ["menu", "0", "restart", "accueil", "home", "retour"]
+
+    if any(cmd in body for cmd in RESET):
+        reset_session(session)
         db.session.commit()
         return send_reply(get_main_menu())
 
@@ -316,10 +319,8 @@ def webhook():
 
         session.canton = COMMUNES[commune_key]["cantons"][body]
 
-        # ---------------- AMBASSADEUR ----------------
         amb = get_ambassadeur(session.commune, session.sous_categorie)
 
-        # ---------------- SAVE ----------------
         signalement = Signalement(
             telephone=user_id,
             categorie=session.categorie,
@@ -332,13 +333,7 @@ def webhook():
 
         db.session.add(signalement)
 
-        # reset session
-        session.step = "menu"
-        session.categorie = None
-        session.sous_categorie = None
-        session.commune = None
-        session.canton = None
-
+        reset_session(session)
         db.session.commit()
 
         return send_reply(
@@ -351,7 +346,7 @@ def webhook():
             "👤 *Ambassadeur assigné :*\n"
             f"Nom : {amb['nom']}\n"
             f"Téléphone : {amb['tel']}\n\n"
-            "🕊️ Merci pour votre contribution à la paix.\n\n"
+            "🕊️ Merci pour votre contribution.\n\n"
             "Tapez MENU pour recommencer."
         )
 
