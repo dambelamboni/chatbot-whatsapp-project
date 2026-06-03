@@ -4,3 +4,4 @@ SQLAlchemy>=2.0.30,<3.0
 twilio>=8,<10
 gunicorn==22.0.0
 python-dotenv==1.0.1
+psycopg2-binary==2.9.9
