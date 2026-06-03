@@ -5,14 +5,14 @@ from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
 
 # =========================================================
-# APP
+# APP CONFIG
 # =========================================================
 
 app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
-    "sqlite:///murmures_communes.db"
+    "sqlite:///murmures_final.db"
 )
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -66,7 +66,7 @@ with app.app_context():
 RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
 
 # =========================================================
-# MENU
+# MENU PRINCIPAL (HIÉRARCHIE EXACTE)
 # =========================================================
 
 MENU = {
@@ -76,7 +76,7 @@ MENU = {
             "1": "Conflits ou violence",
             "2": "Viol ou VBG",
             "3": "Rumeur du quartier",
-            "4": "Personne ou groupe suspect"
+            "4": "Groupe ou personne suspecte"
         }
     },
     "2": {
@@ -140,7 +140,7 @@ COMMUNES = {
 }
 
 # =========================================================
-# AMBASSADEURS PAR COMMUNE (IMPORTANT)
+# AMBASSADEURS PAR COMMUNE + CATÉGORIE
 # =========================================================
 
 AMBASSADEURS = {
@@ -185,16 +185,6 @@ def is_reset(text):
     return text in RESET_CMDS
 
 
-def get_ambassadeur(commune_key, main_label):
-    return AMBASSADEURS.get(commune_key, {}).get(
-        main_label,
-        ("Non assigné", "N/A")
-    )
-
-# =========================================================
-# MENUS
-# =========================================================
-
 def main_menu():
     return (
         "🕊️ *MURMURES DU QUARTIER*\n━━━━━━━━━━━━━━\n\n"
@@ -206,9 +196,17 @@ def main_menu():
     )
 
 
+def sub_menu(main):
+    txt = f"📌 {MENU[main]['label']}\n\n"
+    for k, v in MENU[main]["sub"].items():
+        txt += f"{k}️⃣ {v}\n"
+    txt += "\n🔄 MENU pour revenir."
+    return txt
+
+
 def commune_menu():
     return (
-        "🏛️ *Choisissez la commune*\n\n"
+        "🏛️ Choisissez la commune :\n\n"
         "1️⃣ Tandjouaré\n"
         "2️⃣ Nano\n\n"
         "🔄 MENU pour revenir."
@@ -223,12 +221,11 @@ def canton_menu(commune):
     return txt
 
 
-def sub_menu(main):
-    txt = f"📌 {MENU[main]['label']}\n\n"
-    for k, v in MENU[main]["sub"].items():
-        txt += f"{k}️⃣ {v}\n"
-    txt += "\n🔄 MENU pour revenir."
-    return txt
+def get_ambassadeur(commune, main_label):
+    return AMBASSADEURS.get(commune, {}).get(
+        main_label,
+        ("Non assigné", "N/A")
+    )
 
 # =========================================================
 # WEBHOOK
@@ -248,7 +245,7 @@ def webhook():
         db.session.commit()
         return send(main_menu())
 
-    # RESET
+    # RESET GLOBAL
     if is_reset(body):
         reset(session)
         db.session.commit()
@@ -310,7 +307,7 @@ def webhook():
         return send(canton_menu(body))
 
     # =====================================================
-    # CANTON + FINAL
+    # CANTON + FINAL PROCESS
     # =====================================================
 
     if session.step == "canton":
@@ -318,36 +315,50 @@ def webhook():
         if body not in COMMUNES[session.commune]["cantons"]:
             return send(canton_menu(session.commune))
 
-        session.canton = COMMUNES[session.commune]["cantons"][body]
+        canton_name = COMMUNES[session.commune]["cantons"][body]
+        session.canton = canton_name
 
         main_label = MENU[session.main]["label"]
         sub_label = MENU[session.main]["sub"][session.sub]
 
         amb_name, amb_tel = get_ambassadeur(session.commune, main_label)
 
-        db.session.add(Signalement(
+        signalement = Signalement(
             telephone=user_id,
             categorie=main_label,
             sous_categorie=sub_label,
             description=session.description,
             commune=COMMUNES[session.commune]["nom"],
-            canton=session.canton,
+            canton=canton_name,
             ambassadeur_nom=amb_name,
             ambassadeur_tel=amb_tel
-        ))
+        )
 
+        try:
+            db.session.add(signalement)
+            db.session.commit()
+
+        except Exception:
+            db.session.rollback()
+            reset(session)
+            db.session.commit()
+            return send("❌ Erreur serveur. Réessayez ou tapez MENU.")
+
+        # RESET PROPRE
         reset(session)
         db.session.commit()
 
+        # AFFICHAGE FINAL
         return send(
-            "🟢 *SIGNALEMENT ENREGISTRÉ*\n━━━━━━━━━━━━━━\n\n"
+            "🟢 *DEMANDE ENREGISTRÉE*\n━━━━━━━━━━━━━━\n\n"
             f"📌 Catégorie : {main_label}\n"
             f"📎 Sous-catégorie : {sub_label}\n"
             f"🏛️ Commune : {COMMUNES[session.commune]['nom']}\n"
-            f"📍 Canton : {session.canton}\n\n"
-            f"👤 Ambassadeur : {amb_name} ({amb_tel})\n\n"
-            "🕊️ Merci pour votre contribution.\n\n"
-            "MENU pour recommencer."
+            f"📍 Canton : {canton_name}\n\n"
+            "👤 Ambassadeur :\n"
+            f"{amb_name} - {amb_tel}\n\n"
+            "✅ Traitement en cours.\n\n"
+            "🔄 MENU pour recommencer."
         )
 
     reset(session)
