@@ -65,42 +65,42 @@ with app.app_context():
 RESET_CMDS = {"menu", "0", "restart", "accueil", "home"}
 
 # =========================================================
-# MENU STRUCTURE
+# MENU STRUCTURE (MIS À JOUR)
 # =========================================================
 
 MENU = {
     "1": {
         "label": "Signalement",
         "sub": {
-            "1": "Conflit ou violence",
+            "1": "Conflits ou violence",
             "2": "Viol ou VBG",
             "3": "Rumeur du quartier",
-            "4": "Personne suspecte"
+            "4": "Groupe suspect ou personne suspecte"
         }
     },
     "2": {
         "label": "Déclarer un fait",
         "sub": {
             "1": "Injustice sociale",
-            "2": "Vulnérabilité",
-            "3": "Tension / malentendu"
+            "2": "Vulnérabilités",
+            "3": "Tensions naissantes ou malentendus"
         }
     },
     "3": {
-        "label": "Conseil",
+        "label": "Obtenir un conseil",
         "sub": {
-            "1": "Cas VBG",
+            "1": "Cas de VBG",
             "2": "Viol",
             "3": "Litige foncier",
-            "4": "Autre"
+            "4": "Autres"
         }
     },
     "4": {
-        "label": "SOS",
+        "label": "SOS (Urgence)",
         "sub": {
             "1": "Braquage",
             "2": "Cambriolage",
-            "3": "Agression"
+            "3": "Agression ou attaque terroriste"
         }
     }
 }
@@ -146,14 +146,14 @@ AMBASSADEURS = {
     "1": {
         "Signalement": ("Jean K.", "+22890011234"),
         "Déclarer un fait": ("Sara T.", "+22890122345"),
-        "Conseil": ("Amina K.", "+22890233456"),
-        "SOS": ("Police nationale", "112")
+        "Obtenir un conseil": ("Amina K.", "+22890233456"),
+        "SOS (Urgence)": ("Police nationale", "112")
     },
     "2": {
         "Signalement": ("Lea S.", "+22890566789"),
         "Déclarer un fait": ("Yao I.", "+22890677890"),
-        "Conseil": ("Emma T.", "+22890788901"),
-        "SOS": ("Sécurité", "112")
+        "Obtenir un conseil": ("Emma T.", "+22890788901"),
+        "SOS (Urgence)": ("Sécurité", "112")
     }
 }
 
@@ -188,12 +188,11 @@ def get_ambassadeur(commune_key, category):
 
 def main_menu():
     return (
-        "🕊️ *MURMURES DU QUARTIER*\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
+        "\n━━━━ 🕊️ *MURMURES DU QUARTIER ━━━━\n"       
         "1️⃣ Signalement\n"
         "2️⃣ Déclarer un fait\n"
-        "3️⃣ Conseil\n"
-        "4️⃣ SOS\n\n"
+        "3️⃣ Obtenir un conseil\n"
+        "4️⃣ SOS (Urgence)\n\n"
         "🔄 MENU pour revenir à tout moment"
     )
 
@@ -221,7 +220,7 @@ def canton_menu(commune):
     return txt
 
 # =========================================================
-# WEBHOOK (CORE LOGIC)
+# WEBHOOK CORE
 # =========================================================
 
 @app.route("/webhook", methods=["POST"])
@@ -234,7 +233,7 @@ def webhook():
 
         session = UserSession.query.get(user)
 
-        # INIT SESSION
+        # INIT
         if not session:
             session = UserSession(id=user)
             db.session.add(session)
@@ -287,7 +286,7 @@ def webhook():
             return send(commune_menu())
 
         # =====================================================
-        # STEP 4: CANTON + FINAL PROCESS
+        # STEP 4: FINAL (CANTON + SAVE)
         # =====================================================
         if session.step == "canton":
 
@@ -295,16 +294,14 @@ def webhook():
                 return send(canton_menu(session.commune))
 
             canton_label = COMMUNES[session.commune]["cantons"][body]
-            session.canton = canton_label
+            commune_label = COMMUNES[session.commune]["nom"]
 
             categorie = MENU[session.main]["label"]
             sous_categorie = MENU[session.main]["sub"][session.sub]
-            commune_label = COMMUNES[session.commune]["nom"]
 
-            amb = get_ambassadeur(session.commune, categorie)
-            amb_nom, amb_tel = amb
+            amb_nom, amb_tel = get_ambassadeur(session.commune, categorie)
 
-            # SAVE DB
+            # SAVE
             signal = Signalement(
                 telephone=user,
                 categorie=categorie,
@@ -318,12 +315,12 @@ def webhook():
             db.session.add(signal)
             db.session.commit()
 
-            # BUILD MESSAGE BEFORE RESET
+            # BUILD MESSAGE
             message = (
                 "🟢 *SIGNALEMENT ENREGISTRÉ*\n"
                 "━━━━━━━━━━━━━━━━━━\n\n"
                 f"📌 Catégorie : {categorie}\n"
-                f"📎 Type : {sous_categorie}\n"
+                f"📎 Sous-catégorie : {sous_categorie}\n"
                 f"🏛️ Commune : {commune_label}\n"
                 f"📍 Canton : {canton_label}\n\n"
                 "👤 Ambassadeur assigné :\n"
@@ -333,21 +330,16 @@ def webhook():
                 "🔄 MENU pour recommencer"
             )
 
-            # RESET SAFE
+            # RESET SAFE AFTER SAVE
             reset(session)
             db.session.commit()
 
             return send(message)
 
-        # FALLBACK SAFE
         reset(session)
         db.session.commit()
         return send(main_menu())
 
-
-# =========================================================
-# RUN
-# =========================================================
 
 if __name__ == "__main__":
     app.run(debug=True)
