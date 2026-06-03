@@ -4,14 +4,14 @@ from flask_sqlalchemy import SQLAlchemy
 from twilio.twiml.messaging_response import MessagingResponse
 
 # =========================================================
-# APP
+# APP CONFIG
 # =========================================================
 
 app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
-    "sqlite:///murmures_safe.db"
+    "sqlite:///murmures_pro.db"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -21,10 +21,10 @@ db = SQLAlchemy(app)
 # ANTI DUPLICATION TWILIO
 # =========================================================
 
-LAST_SID = {}
+LAST_MESSAGE = {}
 
 # =========================================================
-# SESSION
+# SESSION MODEL
 # =========================================================
 
 class UserSession(db.Model):
@@ -35,13 +35,14 @@ class UserSession(db.Model):
 
     main_choice = db.Column(db.String(10))
     sub_choice = db.Column(db.String(10))
+    canton_choice = db.Column(db.String(10))
 
 
 with app.app_context():
     db.create_all()
 
 # =========================================================
-# MENU
+# MENU STRUCTURE
 # =========================================================
 
 MENU = {
@@ -59,7 +60,7 @@ MENU = {
         "sub": {
             "1": "Injustice sociale",
             "2": "Vulnérabilités communautaires",
-            "3": "Tensions naissantes ou malentendus"
+            "3": "Tensions ou malentendus"
         }
     },
     "3": {
@@ -81,6 +82,17 @@ MENU = {
     }
 }
 
+CANTONS = {
+    "1": "Bogou",
+    "2": "Bombouaka",
+    "3": "Boulogou",
+    "4": "Pligou",
+    "5": "Tammongue",
+    "6": "Loko",
+    "7": "Nandoga",
+    "8": "Goundoga"
+}
+
 AMBASSADEURS = {
     "Signalement": {
         "Conflits ou violence": {"nom": "Jean K.", "tel": "+22890011234"},
@@ -91,7 +103,7 @@ AMBASSADEURS = {
     "Déclarer un fait": {
         "Injustice sociale": {"nom": "Lea S.", "tel": "+22890566789"},
         "Vulnérabilités communautaires": {"nom": "Yao I.", "tel": "+22890677890"},
-        "Tensions naissantes ou malentendus": {"nom": "Emma T.", "tel": "+22890788901"},
+        "Tensions ou malentendus": {"nom": "Emma T.", "tel": "+22890788901"},
     },
     "Obtenir un conseil": {
         "Cas de VBG": {"nom": "Ali B.", "tel": "+22890899012"},
@@ -109,7 +121,7 @@ AMBASSADEURS = {
 RESET_CMDS = {"menu", "0", "restart", "accueil", "home", "retour"}
 
 # =========================================================
-# HELPERS ULTRA SAFE
+# HELPERS
 # =========================================================
 
 def send(msg):
@@ -133,13 +145,14 @@ def reset(session):
     session.step = "menu"
     session.main_choice = None
     session.sub_choice = None
+    session.canton_choice = None
 
 
-def valid_main_choice(x):
+def valid_main(x):
     return x in MENU
 
 
-def valid_sub_choice(main, sub):
+def valid_sub(main, sub):
     return main in MENU and sub in MENU[main]["sub"]
 
 
@@ -155,26 +168,31 @@ def get_ambassadeur(main_label, sub_label):
 
 def main_menu():
     return (
-        "━━━━ 🕊️ *MURMURES DU QUARTIER ━━━━\n"
+        "🕊️ *MURMURES DU QUARTIER*\n━━━━━━━━━━━━━━\n\n"
         "1️⃣ Signalement\n"
         "2️⃣ Déclarer un fait\n"
         "3️⃣ Obtenir un conseil\n"
         "4️⃣ SOS (Urgence)\n\n"
-        "🔄 Tapez MENU pour revenir."
+        "🔄 MENU pour revenir à tout moment."
     )
 
 
 def sub_menu(main):
-    data = MENU.get(main)
-    if not data:
-        return main_menu()
-
+    data = MENU[main]
     txt = f"📌 *{data['label']}*\n━━━━━━━━━━━━━━\n\n"
 
     for k, v in data["sub"].items():
         txt += f"{k}️⃣ {v}\n"
 
-    txt += "\n🔄 Tapez MENU pour revenir."
+    txt += "\n🔄 MENU pour revenir."
+    return txt
+
+
+def canton_menu():
+    txt = "📍 *Choisissez votre canton*\n━━━━━━━━━━━━━━\n\n"
+    for k, v in CANTONS.items():
+        txt += f"{k}️⃣ {v}\n"
+    txt += "\n🔄 MENU pour revenir."
     return txt
 
 # =========================================================
@@ -187,20 +205,19 @@ def webhook():
     user_id = request.form.get("From", "").replace("whatsapp:", "")
     body_raw = request.form.get("Body", "")
     body = normalize(body_raw)
-
     message_sid = request.form.get("MessageSid")
 
     if not user_id:
         return "error", 400
 
     # =====================================================
-    # ANTI DUPLICATION TWILIO (CRITIQUE)
+    # ANTI DUPLICATION TWILIO
     # =====================================================
 
     if message_sid:
-        if LAST_SID.get(user_id) == message_sid:
+        if LAST_MESSAGE.get(user_id) == message_sid:
             return send(main_menu())
-        LAST_SID[user_id] = message_sid
+        LAST_MESSAGE[user_id] = message_sid
 
     # =====================================================
     # SESSION
@@ -215,7 +232,7 @@ def webhook():
         return send(main_menu())
 
     # =====================================================
-    # RESET GLOBAL (ROBUSTE)
+    # RESET GLOBAL ULTRA ROBUSTE
     # =====================================================
 
     if is_reset(body):
@@ -229,7 +246,7 @@ def webhook():
 
     if session.step == "menu":
 
-        if valid_main_choice(body):
+        if valid_main(body):
             session.main_choice = body
             session.step = "sub_menu"
             db.session.commit()
@@ -243,35 +260,50 @@ def webhook():
 
     if session.step == "sub_menu":
 
-        if not valid_main_choice(session.main_choice):
+        if not valid_main(session.main_choice):
             reset(session)
             db.session.commit()
             return send(main_menu())
 
-        if valid_sub_choice(session.main_choice, body):
-
-            main_label = MENU[session.main_choice]["label"]
-            sub_label = MENU[session.main_choice]["sub"][body]
-
-            amb = get_ambassadeur(main_label, sub_label)
-
-            # RESET AVANT RETURN (évite ghost state)
-            reset(session)
+        if valid_sub(session.main_choice, body):
+            session.sub_choice = body
+            session.step = "canton"
             db.session.commit()
-
-            return send(
-                "🟢 *DEMANDE ENREGISTRÉE*\n"
-                "━━━━━━━━━━━━━━\n\n"
-                f"📌 Catégorie : {main_label}\n"
-                f"📍 Sous-catégorie : {sub_label}\n\n"
-                "👤 *Ambassadeur :*\n"
-                f"{amb['nom']}\n"
-                f"📞 {amb['tel']}\n\n"
-                "🕊️ Merci pour votre signalement.\n\n"
-                "MENU pour recommencer."
-            )
+            return send(canton_menu())
 
         return send(sub_menu(session.main_choice))
+
+    # =====================================================
+    # CANTON + FINAL (ENREGISTREMENT + AFFICHAGE)
+    # =====================================================
+
+    if session.step == "canton":
+
+        if body not in CANTONS:
+            return send(canton_menu())
+
+        session.canton_choice = body
+
+        main_label = MENU[session.main_choice]["label"]
+        sub_label = MENU[session.main_choice]["sub"][session.sub_choice]
+        canton_label = CANTONS[body]
+
+        amb = get_ambassadeur(main_label, sub_label)
+
+        reset(session)
+        db.session.commit()
+
+        return send(
+            "🟢 *SIGNALEMENT ENREGISTRÉ*\n━━━━━━━━━━━━━━\n\n"
+            f"📌 Catégorie : {main_label}\n"
+            f"📍 Sous-catégorie : {sub_label}\n"
+            f"🏘️ Canton : {canton_label}\n\n"
+            "👤 *Ambassadeur affecté :*\n"
+            f"{amb['nom']}\n"
+            f"{amb['tel']}\n\n"
+            "🕊️ Merci pour votre contribution.\n\n"
+            "MENU pour recommencer."
+        )
 
     # =====================================================
     # FALLBACK SAFE
